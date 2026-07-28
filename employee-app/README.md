@@ -35,6 +35,8 @@ employee-app/
 
 ## Option A — Run on EC2 (Amazon Linux 2023)
 
+No Docker required — the app runs directly on the server.
+
 ### Recommended Instance
 
 | Setting | Value |
@@ -59,7 +61,7 @@ employee-app/
 ssh -i <YOUR_KEY.pem> ec2-user@<EC2_PUBLIC_IP>
 ```
 
-### Install Dependencies
+### Prerequisites
 
 ```bash
 sudo dnf update -y
@@ -73,10 +75,11 @@ sudo dnf install -y nodejs
 sudo dnf install -y postgresql15-server postgresql15
 sudo postgresql-setup --initdb
 sudo systemctl enable --now postgresql
-sudo -u postgres psql -c "CREATE USER postgres WITH PASSWORD 'postgres';"
-sudo -u postgres psql -c "CREATE DATABASE employees OWNER postgres;"
 sudo sed -i 's/ident/md5/g' /var/lib/pgsql/data/pg_hba.conf
 sudo systemctl restart postgresql
+sudo -u postgres psql -c "CREATE USER postgres WITH PASSWORD 'postgres';"
+sudo -u postgres psql -c "CREATE DATABASE employees OWNER postgres;"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE employees TO postgres;"
 ```
 
 ### Clone and Run
