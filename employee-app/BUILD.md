@@ -1018,6 +1018,330 @@ Tests use H2 in-memory — no Postgres needed.
 
 ---
 
+---
+
+## EC2 Deployment — Run the App on Amazon Linux
+
+### Why EC2 for this stage?
+
+Before containers and Kubernetes, applications ran directly on virtual machines. Running the app on EC2 teaches you what Docker and Kubernetes are actually automating — the manual steps of provisioning a server, installing runtimes, managing processes, and opening ports.
+
+### Recommended Instance
+
+| Setting | Value | Reason |
+|---------|-------|--------|
+| Instance type | `t3.medium` | 2 vCPU, 4 GB RAM — enough for all three backends + PostgreSQL |
+| AMI | Amazon Linux 2023 | AWS-maintained, ships with `dnf`, modern glibc |
+| Storage | 20 GB gp3 | Enough for OS, runtimes, Maven local repo (~/.m2) |
+| Region | `us-east-1` | Matches the rest of the project |
+
+### Security Group Rules
+
+| Type | Port | Source | Purpose |
+|------|------|--------|---------|
+| SSH | 22 | Your IP | Terminal access |
+| Custom TCP | 5000 | 0.0.0.0/0 | Backend API |
+| Custom TCP | 8080 | 0.0.0.0/0 | Frontend (Python HTTP server) |
+| Custom TCP | 5432 | 0.0.0.0/0 | PostgreSQL (restrict to your IP in production) |
+
+---
+
+### Step 1 — Launch the EC2 Instance
+
+```bash
+# From your local machine
+aws ec2 run-instances \
+  --image-id ami-0c02fb55956c7d316 \
+  --instance-type t3.medium \
+  --key-name <YOUR_KEY_PAIR> \
+  --security-group-ids <YOUR_SG_ID> \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=employee-app-dev}]' \
+  --region us-east-1
+```
+
+Or launch from the AWS Console:
+1. EC2 → Launch Instance
+2. Name: `employee-app-dev`
+3. AMI: Amazon Linux 2023
+4. Instance type: `t3.medium`
+5. Key pair: select or create one
+6. Security group: add the rules from the table above
+7. Storage: 20 GB gp3
+8. Launch
+
+---
+
+### Step 2 — Connect to the Instance
+
+```bash
+ssh -i <YOUR_KEY.pem> ec2-user@<EC2_PUBLIC_IP>
+```
+
+Get the public IP from the AWS Console (EC2 → Instances → your instance → Public IPv4 address).
+
+---
+
+### Step 3 — Install All Dependencies
+
+Run these commands on the EC2 instance after connecting via SSH.
+
+#### System update
+
+```bash
+sudo dnf update -y
+```
+
+#### Git
+
+```bash
+sudo dnf install -y git
+git --version
+```
+
+#### Java 17
+
+```bash
+sudo dnf install -y java-17-amazon-corretto-headless
+java -version
+# openjdk version "17.x.x"
+```
+
+#### Maven
+
+```bash
+sudo dnf install -y maven
+mvn -version
+# Apache Maven 3.x.x
+```
+
+#### Node.js 18
+
+```bash
+curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -
+sudo dnf install -y nodejs
+node --version   # v18.x.x
+npm --version    # 9.x.x
+```
+
+#### Python 3 and pip
+
+```bash
+sudo dnf install -y python3 python3-pip
+python3 --version   # Python 3.11.x
+pip3 --version
+```
+
+#### PostgreSQL 15
+
+```bash
+sudo dnf install -y postgresql15-server postgresql15
+sudo postgresql-setup --initdb
+sudo systemctl enable postgresql
+sudo systemctl start postgresql
+
+# Create database and user
+sudo -u postgres psql <<EOF
+CREATE USER postgres WITH PASSWORD 'postgres';
+CREATE DATABASE employees OWNER postgres;
+GRANT ALL PRIVILEGES ON DATABASE employees TO postgres;
+EOF
+
+# Verify
+sudo systemctl status postgresql
+```
+
+#### Allow password authentication for PostgreSQL
+
+```bash
+sudo sed -i 's/ident/md5/g' /var/lib/pgsql/data/pg_hba.conf
+sudo systemctl restart postgresql
+```
+
+---
+
+### Step 4 — Clone the Repository
+
+```bash
+cd ~
+git clone https://github.com/LandmakTechnology/employee-app.git
+cd employee-app/employee-app
+```
+
+---
+
+### Step 5 — Run the Python Backend
+
+```bash
+cd ~/employee-app/employee-app/backend
+pip3 install -r requirements.txt
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/employees python3 app.py
+```
+
+**Test it:**
+```bash
+# In a second SSH session
+curl http://localhost:5000/api/health
+# {"status": "healthy", "db": "connected"}
+
+curl http://localhost:5000/api/employees
+# []
+```
+
+**Access from browser:**
+```
+http://<EC2_PUBLIC_IP>:5000/api/health
+```
+
+**Run tests:**
+```bash
+# Stop the app first (Ctrl+C), then:
+cd ~/employee-app/employee-app/backend
+pytest
+```
+
+---
+
+### Step 6 — Run the Node.js Backend
+
+```bash
+cd ~/employee-app/employee-app/backend-node
+npm install
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/employees npm start
+```
+
+**Test it:**
+```bash
+curl http://localhost:5000/api/health
+curl http://localhost:5000/api/employees
+```
+
+**Access from browser:**
+```
+http://<EC2_PUBLIC_IP>:5000/api/health
+```
+
+**Run tests:**
+```bash
+# Stop the app first (Ctrl+C), then:
+npm test
+```
+
+---
+
+### Step 7 — Run the Java Backend
+
+```bash
+cd ~/employee-app/employee-app/backend-java
+mvn package -DskipTests
+DATABASE_URL=jdbc:postgresql://localhost:5432/employees \
+DB_USER=postgres \
+DB_PASS=postgres \
+java -jar target/employee-backend-1.0.0.jar
+```
+
+**Test it:**
+```bash
+curl http://localhost:5000/api/health
+curl http://localhost:5000/api/employees
+```
+
+**Access from browser:**
+```
+http://<EC2_PUBLIC_IP>:5000/api/health
+```
+
+**Run tests (uses H2 in-memory — no Postgres needed):**
+```bash
+# Stop the app first (Ctrl+C), then:
+mvn test
+```
+
+---
+
+### Step 8 — Serve the Frontend
+
+The frontend is static HTML/JS. Serve it with Python's built-in HTTP server:
+
+```bash
+cd ~/employee-app/employee-app/frontend
+python3 -m http.server 8080
+```
+
+**Access from browser:**
+```
+http://<EC2_PUBLIC_IP>:8080
+```
+
+> The frontend makes API calls to `/api/*`. For full routing to work on EC2, you need either Nginx as a reverse proxy (see below) or use Docker Compose.
+
+---
+
+### Step 9 — Nginx Reverse Proxy (Full Stack on EC2)
+
+To serve both frontend and backend through a single port (80), install Nginx:
+
+```bash
+sudo dnf install -y nginx
+```
+
+Create the config:
+
+```bash
+sudo tee /etc/nginx/conf.d/employee-app.conf > /dev/null <<'EOF'
+server {
+    listen 80;
+
+    location /api/ {
+        proxy_pass http://localhost:5000;
+        proxy_set_header Host $host;
+    }
+
+    location / {
+        root /home/ec2-user/employee-app/employee-app/frontend;
+        index index.html;
+        try_files $uri $uri/ /index.html;
+    }
+}
+EOF
+
+sudo nginx -t
+sudo systemctl enable nginx
+sudo systemctl start nginx
+```
+
+Add port 80 to your security group, then access:
+```
+http://<EC2_PUBLIC_IP>
+```
+
+---
+
+### Access Summary
+
+| What | URL | Notes |
+|------|-----|-------|
+| Backend API (direct) | `http://<EC2_PUBLIC_IP>:5000/api/health` | Any backend |
+| Backend API employees | `http://<EC2_PUBLIC_IP>:5000/api/employees` | Any backend |
+| Backend stats | `http://<EC2_PUBLIC_IP>:5000/api/stats` | Any backend |
+| Frontend (standalone) | `http://<EC2_PUBLIC_IP>:8080` | Python HTTP server |
+| Full stack (Nginx) | `http://<EC2_PUBLIC_IP>` | Port 80, requires Nginx |
+
+---
+
+### Dependency Summary
+
+| Tool | Install command | Version check |
+|------|----------------|---------------|
+| Java 17 | `sudo dnf install -y java-17-amazon-corretto-headless` | `java -version` |
+| Maven | `sudo dnf install -y maven` | `mvn -version` |
+| Node.js 18 | `curl nodesource \| sudo bash - && sudo dnf install -y nodejs` | `node --version` |
+| Python 3 | `sudo dnf install -y python3 python3-pip` | `python3 --version` |
+| PostgreSQL 15 | `sudo dnf install -y postgresql15-server` | `psql --version` |
+| Git | `sudo dnf install -y git` | `git --version` |
+| Nginx | `sudo dnf install -y nginx` | `nginx -v` |
+
+---
+
 ## What Comes Next — Docker
 
 Right now the app runs on your machine because you manually installed Python, Node.js, or Java and ran the build steps yourself.
