@@ -1134,128 +1134,65 @@ cd employee-app/employee-app
 
 ---
 
-### Run the Python Backend
+### Run with Scripts
+
+Three scripts are provided in the `scripts/` directory — one per backend. Each script runs three phases in sequence: **build**, **test**, then **start**. At the end it prints the URL to open in your browser.
 
 ```bash
-cd ~/employee-app/employee-app/backend
-pip3 install -r requirements.txt
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/employees python3 app.py
+# Make scripts executable (first time only)
+chmod +x scripts/*.sh
 ```
 
-**Test:**
-```bash
-pytest
-```
+| Script | Backend | Test database |
+|--------|---------|---------------|
+| `scripts/run-python.sh` | Python (Flask) | SQLite in-memory |
+| `scripts/run-node.sh` | Node.js (Express) | PostgreSQL |
+| `scripts/run-java.sh` | Java (Spring Boot) | H2 in-memory |
 
-**Access:**
-```
-http://<EC2_PUBLIC_IP>:5000/api/health
-http://<EC2_PUBLIC_IP>:5000/api/employees
-```
-
----
-
-### Run the Node.js Backend
+Run one at a time — they all use port 5000:
 
 ```bash
-cd ~/employee-app/employee-app/backend-node
-npm install
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/employees npm start
+# Python
+bash scripts/run-python.sh
+
+# Node.js
+bash scripts/run-node.sh
+
+# Java
+bash scripts/run-java.sh
 ```
 
-**Test:**
-```bash
-npm test
+Each script outputs:
+
+```
+============================================
+  Employee App — Python Backend
+============================================
+
+>>> PHASE 1: BUILD
+Installing Python dependencies...
+...
+Build complete.
+
+>>> PHASE 2: TEST
+Running tests...
+...
+Tests passed.
+
+>>> PHASE 3: START
+Configuring Nginx...
+Starting backend on port 5000...
+Backend is up.
+
+============================================
+  App is running!
+  Open: http://<EC2_PUBLIC_IP>
+  Logs: tail -f /tmp/backend.log
+  Stop: kill <PID>
+============================================
 ```
 
-**Access:**
-```
-http://<EC2_PUBLIC_IP>:5000/api/health
-http://<EC2_PUBLIC_IP>:5000/api/employees
-```
-
----
-
-### Run the Java Backend
-
-```bash
-cd ~/employee-app/employee-app/backend-java
-mvn package -DskipTests
-DATABASE_URL=jdbc:postgresql://localhost:5432/employees \
-DB_USER=postgres \
-DB_PASS=postgres \
-java -jar target/employee-backend-1.0.0.jar
-```
-
-**Test (H2 in-memory — no Postgres needed):**
-```bash
-mvn test
-```
-
-**Access:**
-```
-http://<EC2_PUBLIC_IP>:5000/api/health
-http://<EC2_PUBLIC_IP>:5000/api/employees
-```
-
----
-
-### Serve the Frontend
-
-```bash
-cd ~/employee-app/employee-app/frontend
-python3 -m http.server 8080
-```
-
-**Access:**
-```
-http://<EC2_PUBLIC_IP>:8080
-```
-
----
-
-### Full Stack via Nginx (port 80)
-
-To route both frontend and backend through a single URL:
-
-```bash
-sudo tee /etc/nginx/conf.d/employee-app.conf > /dev/null <<'EOF'
-server {
-    listen 80;
-
-    location /api/ {
-        proxy_pass http://localhost:5000;
-        proxy_set_header Host $host;
-    }
-
-    location / {
-        root /home/ec2-user/employee-app/employee-app/frontend;
-        index index.html;
-        try_files $uri $uri/ /index.html;
-    }
-}
-EOF
-
-sudo nginx -t
-sudo systemctl enable --now nginx
-```
-
-**Access:**
-```
-http://<EC2_PUBLIC_IP>
-```
-
----
-
-### Access Summary
-
-| URL | Description |
-|-----|-------------|
-| `http://<EC2_PUBLIC_IP>:5000/api/health` | Backend health check |
-| `http://<EC2_PUBLIC_IP>:5000/api/employees` | Employee list |
-| `http://<EC2_PUBLIC_IP>:5000/api/stats` | Stats |
-| `http://<EC2_PUBLIC_IP>:8080` | Frontend (standalone) |
-| `http://<EC2_PUBLIC_IP>` | Full stack via Nginx |
+Open the URL printed at the end in your browser to access the full web interface.
 
 ---
 
