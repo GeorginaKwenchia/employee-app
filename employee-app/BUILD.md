@@ -247,6 +247,296 @@ mvn clean      →  delete all compiled output (target/ directory)
 
 ---
 
+## Java and the JVM
+
+Before you can understand Maven, you need to understand how Java actually runs.
+
+Most languages run directly on the operating system. Java does not. Java runs on a virtual machine — the **Java Virtual Machine (JVM)**.
+
+```
+Other languages:
+  source code  →  machine code  →  runs on OS
+
+Java:
+  source code  →  bytecode  →  JVM  →  runs on OS
+```
+
+This extra layer is what makes Java platform-independent. The same `.class` bytecode file runs on Windows, Linux, and macOS — as long as a JVM is installed. This is the origin of Java's original promise: *write once, run anywhere*.
+
+### The two steps to run Java
+
+**Step 1 — Compile**
+
+The Java compiler (`javac`) reads your `.java` source files and produces `.class` bytecode files.
+
+```
+Employee.java  →  javac Employee.java  →  Employee.class
+```
+
+The `.class` file is not human-readable. It is not machine code either. It is bytecode — an intermediate format that only the JVM understands.
+
+**Step 2 — Run**
+
+The JVM reads the `.class` bytecode and executes it.
+
+```
+Employee.class  →  java Employee  →  running program
+```
+
+### What is a JAR?
+
+A real application has hundreds of `.class` files plus configuration files, templates, and resources. Distributing all of these as loose files is impractical.
+
+A **JAR** (Java ARchive) is a ZIP file that bundles all of it together:
+
+```
+employee-backend-1.0.0.jar
+  ├── com/landmark/employee/Employee.class
+  ├── com/landmark/employee/EmployeeController.class
+  ├── com/landmark/employee/EmployeeRepository.class
+  ├── application.properties
+  └── META-INF/MANIFEST.MF   ← tells Java which class has main()
+```
+
+Spring Boot produces a **fat JAR** (also called an uber JAR) — it includes not just your compiled code but all your dependencies bundled inside. The result is a single self-contained file you can run on any machine with Java installed.
+
+```bash
+java -jar target/employee-backend-1.0.0.jar
+```
+
+No `pip install`. No `npm install`. Everything is already inside the JAR.
+
+---
+
+## Maven
+
+Maven is the build tool for Java. It does three things:
+
+1. **Dependency management** — downloads libraries from the internet and caches them locally
+2. **Build automation** — compiles, tests, and packages your code in a fixed, predictable sequence
+3. **Project standardisation** — enforces a standard directory layout so every Maven project looks the same
+
+### The standard directory layout
+
+Maven enforces a convention for where files live. You do not configure this — it is fixed:
+
+```
+backend-java/
+├── pom.xml                          ← project definition and dependencies
+└── src/
+    ├── main/
+    │   ├── java/                    ← your application source code
+    │   └── resources/               ← config files (application.properties)
+    └── test/
+        ├── java/                    ← your test source code
+        └── resources/               ← test config (uses H2 instead of Postgres)
+```
+
+This convention means any Java developer can clone any Maven project and immediately know where to find the source code, the tests, and the config.
+
+### pom.xml
+
+The `pom.xml` (Project Object Model) is Maven's dependency file. It defines everything about your project:
+
+```xml
+<project>
+  <!-- Who is this project? -->
+  <groupId>com.landmark</groupId>       <!-- your organisation -->
+  <artifactId>employee-backend</artifactId>  <!-- project name -->
+  <version>1.0.0</version>             <!-- version -->
+
+  <!-- What does it need? -->
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+      <!-- no version — inherited from parent -->
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>test</scope>   <!-- only available during tests -->
+    </dependency>
+  </dependencies>
+</project>
+```
+
+The `<scope>` field controls when a dependency is available:
+
+| Scope | Available at compile | Available at runtime | Available in tests |
+|-------|---------------------|---------------------|--------------------|
+| (none / compile) | Yes | Yes | Yes |
+| `runtime` | No | Yes | Yes |
+| `test` | No | No | Yes |
+
+This is why H2 (the in-memory test database) is never bundled into the production JAR — it has `<scope>test</scope>`.
+
+### The Maven build lifecycle
+
+Maven's build process is a fixed sequence of **phases**. Each phase automatically includes all the phases before it.
+
+```
+validate  →  compile  →  test  →  package  →  verify  →  install  →  deploy
+```
+
+| Phase | What it does |
+|-------|--------------|
+| `validate` | Checks the `pom.xml` is valid and all required information is present |
+| `compile` | Downloads dependencies, compiles `.java` → `.class` into `target/classes/` |
+| `test` | Compiles test code, runs all tests — build fails here if any test fails |
+| `package` | Bundles compiled code into a JAR at `target/employee-backend-1.0.0.jar` |
+| `verify` | Runs integration checks on the package |
+| `install` | Copies the JAR into your local Maven repository (`~/.m2/repository`) |
+| `deploy` | Uploads the JAR to a remote repository (Nexus, Artifactory, etc.) |
+
+When you run `mvn package`, Maven runs validate → compile → test → package in sequence. You do not run them individually.
+
+```bash
+mvn compile          # stops after compile
+mvn test             # runs compile then test
+mvn package          # runs compile, test, then package
+mvn package -DskipTests   # runs compile and package, skips test phase
+mvn clean            # deletes target/ — forces a full rebuild next time
+mvn clean package    # delete everything, then build fresh
+```
+
+### The local repository
+
+The first time you run `mvn compile`, Maven downloads every dependency from the internet and stores it in `~/.m2/repository/`. Every subsequent build reads from this local cache — no internet required.
+
+```
+~/.m2/repository/
+  org/springframework/boot/spring-boot-starter-web/3.2.0/
+    spring-boot-starter-web-3.2.0.jar
+  org/postgresql/postgresql/42.7.1/
+    postgresql-42.7.1.jar
+```
+
+This is why the first Maven build is slow and all subsequent builds are fast.
+
+### What gets produced
+
+After `mvn package`, Maven creates a `target/` directory:
+
+```
+target/
+  classes/                          ← compiled .class files
+  test-classes/                     ← compiled test .class files
+  surefire-reports/                 ← test results (XML + HTML)
+  employee-backend-1.0.0.jar        ← the fat JAR (your artifact)
+```
+
+The `target/` directory is never committed to Git — it is always regenerated by the build.
+
+---
+
+## npm
+
+npm (Node Package Manager) is the build tool for Node.js. Like Maven, it does two things:
+
+1. **Dependency management** — downloads packages from the npm registry and stores them in `node_modules/`
+2. **Script runner** — runs commands defined in `package.json` (start, test, build, etc.)
+
+### package.json
+
+`package.json` is npm's equivalent of `pom.xml`. It defines the project and its dependencies:
+
+```json
+{
+  "name": "employee-backend-node",
+  "version": "1.0.0",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "test": "jest --forceExit"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "pg": "^8.11.3"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^6.3.4"
+  }
+}
+```
+
+### dependencies vs devDependencies
+
+This is the npm equivalent of Maven's `<scope>`:
+
+| Field | When used | Installed by default | Bundled in production |
+|-------|-----------|---------------------|-----------------------|
+| `dependencies` | Runtime — the app needs these to run | Yes | Yes |
+| `devDependencies` | Development only — testing, linting, build tools | Yes (locally) | No |
+
+`jest` and `supertest` are in `devDependencies` because you only need them to run tests. A production server does not need a test framework.
+
+When deploying to production, you can install only runtime dependencies:
+
+```bash
+npm install --omit=dev
+```
+
+### Version ranges
+
+The `^` symbol in `"express": "^4.18.2"` means *compatible with 4.18.2*. npm will install the latest version that does not break compatibility (any `4.x.x` where `x >= 18.2`).
+
+| Symbol | Meaning | Example |
+|--------|---------|--------|
+| `^4.18.2` | Any compatible version (same major) | `4.18.2`, `4.19.0`, `4.20.1` |
+| `~4.18.2` | Patch updates only | `4.18.2`, `4.18.3`, `4.18.9` |
+| `4.18.2` | Exact version only | `4.18.2` |
+
+### package-lock.json
+
+Version ranges introduce a problem: two developers running `npm install` at different times might get different versions. `package-lock.json` solves this by recording the exact version of every package that was installed.
+
+```
+package.json       →  "express": "^4.18.2"   (range — flexible)
+package-lock.json  →  "express": "4.19.2"    (exact — locked)
+```
+
+| File | Committed to Git | Purpose |
+|------|-----------------|--------|
+| `package.json` | Yes | Declares what you need |
+| `package-lock.json` | Yes | Locks exact versions for reproducible installs |
+| `node_modules/` | No | Downloaded packages — never commit |
+
+### npm scripts
+
+The `scripts` section in `package.json` defines shortcuts for common commands:
+
+```json
+"scripts": {
+  "start": "node app.js",
+  "test": "jest --forceExit"
+}
+```
+
+You run them with `npm run <name>`, or for the built-in names `start` and `test`, just `npm start` and `npm test`.
+
+This means the person running the project does not need to know the exact command — they just run `npm start` and npm looks up what that means in `package.json`.
+
+### node_modules
+
+After `npm install`, all downloaded packages live in `node_modules/`:
+
+```
+node_modules/
+  express/
+  cors/
+  pg/
+  jest/
+  supertest/
+  ... (hundreds of transitive dependencies)
+```
+
+This folder can contain hundreds of packages because each package has its own dependencies. It is always excluded from Git via `.gitignore`. Anyone who clones the repo runs `npm install` to recreate it.
+
+---
+
 ## Practical — Building the Employee Directory App
 
 The Employee Directory app is a full-stack application:
@@ -622,6 +912,109 @@ Tests use H2 in memory — no Postgres needed.
 | Java | `java -jar ...` without `mvn package` | `Error: Unable to access jarfile target/employee-backend-1.0.0.jar` |
 
 The build step is the gate. Nothing runs without it.
+
+---
+
+## How to Run, Test and Access Each Backend
+
+### Prerequisites — start the database
+
+```bash
+docker run -d --name pg \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=employees \
+  -p 5432:5432 \
+  postgres:15
+```
+
+Leave this running for all three backends.
+
+---
+
+### Python
+
+**Run:**
+```bash
+cd employee-app/backend
+pip install -r requirements.txt
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/employees python app.py
+```
+
+Windows shortcut:
+```bat
+run.bat
+```
+
+**Test:**
+```bash
+pytest
+```
+Tests use SQLite in-memory — no Postgres needed.
+
+**Access:**
+
+| URL | Description |
+|-----|-------------|
+| `http://localhost:5000/api/health` | Health check |
+| `http://localhost:5000/api/employees` | List employees |
+| `http://localhost:5000/api/stats` | Stats |
+| `http://localhost:5000/metrics` | Prometheus metrics |
+
+---
+
+### Node.js
+
+**Run:**
+```bash
+cd employee-app/backend-node
+npm install
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/employees npm start
+```
+
+Windows shortcut:
+```bat
+run.bat
+```
+
+**Test:**
+```bash
+npm test
+```
+Tests connect to the real Postgres database — make sure it is running.
+
+**Access:**
+
+| URL | Description |
+|-----|-------------|
+| `http://localhost:5000/api/health` | Health check |
+| `http://localhost:5000/api/employees` | List employees |
+| `http://localhost:5000/api/stats` | Stats |
+
+---
+
+### Java
+
+**Run:**
+```bash
+cd employee-app/backend-java
+mvn package -DskipTests
+DATABASE_URL=jdbc:postgresql://localhost:5432/employees DB_USER=postgres DB_PASS=postgres java -jar target/employee-backend-1.0.0.jar
+```
+
+**Test:**
+```bash
+mvn test
+```
+Tests use H2 in-memory — no Postgres needed.
+
+**Access:**
+
+| URL | Description |
+|-----|-------------|
+| `http://localhost:5000/api/health` | Health check |
+| `http://localhost:5000/api/employees` | List employees |
+| `http://localhost:5000/api/stats` | Stats |
 
 ---
 
