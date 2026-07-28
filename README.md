@@ -14,6 +14,12 @@ A production-grade, cloud-native web application for managing employee records �
 - [Security Model](#security-model)
 - [Observability Stack](#observability-stack)
 - [CI/CD Pipeline](#cicd-pipeline)
+- [Local Development](#local-development)
+  - [Build Stage 1 — Python](#build-stage-1--python-flask)
+  - [Build Stage 2 — Node.js](#build-stage-2--nodejs-express)
+  - [Build Stage 3 — Java](#build-stage-3--java-spring-boot--maven)
+  - [Build Comparison](#build-comparison--python-vs-nodejs-vs-java)
+  - [Stage 4 — Docker Compose](#stage-4--run-the-full-stack-with-docker-compose)
 - [Deployment Guide](#deployment-guide)
 - [Operations](#operations)
 
@@ -407,6 +413,229 @@ Tags follow the format `be-dev-YYYYMMDD-HHMMSS` — every build produces a uniqu
 ### Deployment Strategy
 
 Kubernetes rolling update — new pods become Ready before old pods terminate. Zero downtime deployments.
+
+---
+
+## Local Development
+
+The same Employee Directory app is implemented in three languages. All three expose the exact same REST API on port `5000` — the frontend works with any of them.
+
+### Repo Structure
+
+```
+employee-app/
+├── backend/          # Python (Flask)
+├── backend-node/     # Node.js (Express)
+├── backend-java/     # Java (Spring Boot + Maven)
+└── frontend/         # Nginx + HTML/JS (shared by all backends)
+```
+
+---
+
+## How to Identify a Programming Language
+
+When you open an unfamiliar codebase, these are the files that tell you what language and build tool it uses:
+
+| File you see | Language | Build tool | Install command |
+|---|---|---|---|
+| `requirements.txt` | Python | pip | `pip install -r requirements.txt` |
+| `package.json` | JavaScript / Node.js | npm | `npm install` |
+| `pom.xml` | Java | Maven | `mvn compile` |
+| `build.gradle` | Java / Kotlin | Gradle | `gradle build` |
+| `go.mod` | Go | go modules | `go mod download` |
+| `Gemfile` | Ruby | Bundler | `bundle install` |
+| `Cargo.toml` | Rust | Cargo | `cargo build` |
+
+In this repo:
+
+```
+backend/
+└── requirements.txt     ← Python project
+
+backend-node/
+└── package.json         ← Node.js project
+
+backend-java/
+└── pom.xml              ← Java project
+```
+
+---
+
+## Prerequisites
+
+Start a local PostgreSQL database — all three backends connect to it:
+
+```bash
+docker run -d --name pg \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=employees \
+  -p 5432:5432 \
+  postgres:15
+```
+
+---
+
+## Build Stage 1 — Python (Flask)
+
+**Prerequisites:** Python 3.11+
+
+### Dependencies — `requirements.txt`
+
+| Package | Version | Purpose |
+|---------|---------|--------|
+| `flask` | 3.1.0 | Web framework |
+| `flask-cors` | 5.0.0 | Cross-origin request support |
+| `flask-sqlalchemy` | 3.1.1 | ORM — maps Python classes to DB tables |
+| `psycopg2-binary` | 2.9.9 | PostgreSQL driver |
+| `boto3` | 1.35.0 | AWS SDK (S3, CloudWatch) |
+| `gunicorn` | 23.0.0 | Production WSGI server (Docker only) |
+| `watchtower` | 3.3.0 | Streams logs to CloudWatch |
+| `prometheus-flask-exporter` | 0.23.1 | Exposes `/metrics` for Prometheus |
+| `pytest` | 8.3.0 | Test runner |
+| `pytest-flask` | 1.3.0 | Flask test client helpers |
+| `moto` | 5.0.0 | Mocks AWS services in tests |
+
+### Install & Run
+
+```bash
+cd employee-app/backend
+pip install -r requirements.txt
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/employees python app.py
+```
+
+### Test
+
+```bash
+pytest
+```
+
+---
+
+## Build Stage 2 — Node.js (Express)
+
+**Prerequisites:** Node.js 18+
+
+### Dependencies — `package.json`
+
+**Runtime (`dependencies`):**
+
+| Package | Version | Purpose |
+|---------|---------|--------|
+| `express` | ^4.18.2 | Web framework |
+| `cors` | ^2.8.5 | Cross-origin request support |
+| `pg` | ^8.11.3 | PostgreSQL client |
+
+**Test-only (`devDependencies`):**
+
+| Package | Version | Purpose |
+|---------|---------|--------|
+| `jest` | ^29.7.0 | Test runner |
+| `supertest` | ^6.3.4 | HTTP testing without a real server |
+
+### Install & Run
+
+```bash
+cd employee-app/backend-node
+npm install
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/employees npm start
+```
+
+### Test
+
+```bash
+npm test
+```
+
+---
+
+## Build Stage 3 — Java (Spring Boot + Maven)
+
+**Prerequisites:** Java 17+, Maven 3.8+
+
+### Dependencies — `pom.xml`
+
+**Runtime:**
+
+| Dependency | Purpose |
+|------------|---------|
+| `spring-boot-starter-web` | Embedded Tomcat + Spring MVC |
+| `spring-boot-starter-data-jpa` | JPA/Hibernate ORM |
+| `postgresql` | PostgreSQL JDBC driver |
+
+**Test-only:**
+
+| Dependency | Purpose |
+|------------|---------|
+| `h2` | In-memory database for tests |
+| `spring-boot-starter-test` | JUnit 5 + MockMvc |
+
+### Maven Lifecycle
+
+```
+mvn compile    →  .java → .class (bytecode)
+mvn test       →  compile + run tests
+mvn package    →  compile + test + bundle into JAR
+mvn clean      →  delete target/ directory
+```
+
+### Build & Run
+
+```bash
+cd employee-app/backend-java
+mvn package -DskipTests
+DATABASE_URL=jdbc:postgresql://localhost:5432/employees DB_USER=postgres DB_PASS=postgres java -jar target/employee-backend-1.0.0.jar
+```
+
+### Test
+
+```bash
+mvn test
+```
+
+---
+
+## Build Comparison
+
+| | Python | Node.js | Java |
+|---|---|---|---|
+| Identify by | `requirements.txt` | `package.json` | `pom.xml` |
+| Install | `pip install -r requirements.txt` | `npm install` | `mvn compile` |
+| Run | `python app.py` | `npm start` | `java -jar target/*.jar` |
+| Test | `pytest` | `npm test` | `mvn test` |
+| Artifact | none (interpreted) | none (interpreted) | `target/*.jar` (compiled) |
+| Compile step | No | No | Yes |
+| Test database | SQLite in-memory | PostgreSQL | H2 in-memory |
+
+---
+
+## Accessing the Frontend Locally
+
+```bash
+cd employee-app/frontend
+python -m http.server 8080
+```
+
+Open `http://localhost:8080`. For full `/api/` routing to work, use Docker Compose below.
+
+---
+
+## Stage 4 — Run the Full Stack with Docker Compose
+
+```bash
+cd employee-app
+docker compose up --build
+```
+
+| Service | URL |
+|---------|-----|
+| Frontend | `http://localhost:8080` |
+| Backend | `http://localhost:5000` |
+
+```bash
+docker compose down       # stop
+docker compose down -v    # stop and wipe database
+```
 
 ---
 
