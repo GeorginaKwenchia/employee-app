@@ -537,302 +537,6 @@ This folder can contain hundreds of packages because each package has its own de
 
 ---
 
-## Step 0 — Start the Database
-
-All three backends need a PostgreSQL database. Start it once with Docker:
-
-```bash
-docker run -d --name pg \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=employees \
-  -p 5432:5432 \
-  postgres:15
-```
-
-Verify it is running:
-
-```bash
-docker ps
-```
-
-You should see a container named `pg` with port `5432` listed. Leave this running for all three practicals.
-
----
-
-## Practical 1 — Python Build
-
-### Identify the language
-
-```bash
-ls employee-app/backend/
-```
-
-You see `requirements.txt` → this is a Python project, build tool is `pip`.
-
-### Read the dependency file
-
-```bash
-cat employee-app/backend/requirements.txt
-```
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `flask` | 3.1.0 | Web framework |
-| `flask-cors` | 5.0.0 | Allows browser to call the API across ports |
-| `flask-sqlalchemy` | 3.1.1 | ORM — write Python instead of raw SQL |
-| `psycopg2-binary` | 2.9.9 | PostgreSQL driver |
-| `boto3` | 1.35.0 | AWS SDK for S3 and CloudWatch |
-| `gunicorn` | 23.0.0 | Production web server (used in Docker, not locally) |
-| `watchtower` | 3.3.0 | Sends logs to AWS CloudWatch |
-| `prometheus-flask-exporter` | 0.23.1 | Exposes `/metrics` for monitoring |
-| `pytest` | 8.3.0 | Test runner |
-| `pytest-flask` | 1.3.0 | Flask test helpers |
-| `moto` | 5.0.0 | Mocks AWS services in tests |
-
-### Install dependencies
-
-```bash
-cd employee-app/backend
-pip install -r requirements.txt
-```
-
-### Run the application
-
-```bash
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/employees python app.py
-```
-
-### Verify it is running
-
-```bash
-curl http://localhost:5000/api/health
-```
-
-```json
-{"status": "healthy", "db": "connected"}
-```
-
-```bash
-curl http://localhost:5000/api/employees
-```
-
-```json
-[]
-```
-
-### Add an employee
-
-```bash
-curl -X POST http://localhost:5000/api/employees \
-  -F "name=Jane Smith" \
-  -F "email=jane@example.com" \
-  -F "role=Engineer" \
-  -F "department=Engineering"
-```
-
-### Run the tests
-
-Stop the running app first (`Ctrl+C`), then:
-
-```bash
-pytest
-```
-
-Tests use SQLite in memory — no Postgres needed. Each test creates a fresh database, runs, and tears it down.
-
----
-
-## Practical 2 — Node.js Build
-
-### Identify the language
-
-```bash
-ls employee-app/backend-node/
-```
-
-You see `package.json` → this is a Node.js project, build tool is `npm`.
-
-### Read the dependency file
-
-```bash
-cat employee-app/backend-node/package.json
-```
-
-**Runtime dependencies:**
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `express` | ^4.18.2 | Web framework |
-| `cors` | ^2.8.5 | Allows browser to call the API across ports |
-| `pg` | ^8.11.3 | PostgreSQL client |
-
-**Dev dependencies (test only):**
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `jest` | ^29.7.0 | Test runner |
-| `supertest` | ^6.3.4 | HTTP testing without a real server |
-
-Note the difference between `dependencies` and `devDependencies`. Runtime dependencies are needed to run the app. Dev dependencies are only needed during development and testing — they are not included in production builds.
-
-### Install dependencies
-
-```bash
-cd employee-app/backend-node
-npm install
-```
-
-After this runs, you will see:
-- `node_modules/` folder created — contains all downloaded packages
-- `package-lock.json` created — locks exact versions of every package
-
-| File / Folder | Committed to Git | Purpose |
-|---------------|-----------------|---------|
-| `package.json` | Yes | Declares what you need |
-| `package-lock.json` | Yes | Locks exact versions |
-| `node_modules/` | No | Downloaded code — never commit this |
-
-### Run the application
-
-```bash
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/employees npm start
-```
-
-### Verify it is running
-
-```bash
-curl http://localhost:5000/api/health
-```
-
-```json
-{"status": "healthy", "db": "connected"}
-```
-
-```bash
-curl http://localhost:5000/api/employees
-```
-
-```json
-[]
-```
-
-### Add an employee
-
-```bash
-curl -X POST http://localhost:5000/api/employees \
-  -H "Content-Type: application/json" \
-  -d '{"name":"John Doe","email":"john@example.com","role":"Manager","department":"Sales"}'
-```
-
-### Run the tests
-
-Stop the running app first (`Ctrl+C`), then:
-
-```bash
-npm test
-```
-
----
-
-## Practical 3 — Java Build
-
-### Identify the language
-
-```bash
-ls employee-app/backend-java/
-```
-
-You see `pom.xml` → this is a Java project, build tool is Maven.
-
-### Read the dependency file
-
-```bash
-cat employee-app/backend-java/pom.xml
-```
-
-**Runtime dependencies:**
-
-| Dependency | Purpose |
-|------------|---------|
-| `spring-boot-starter-web` | Embedded Tomcat web server + HTTP routing |
-| `spring-boot-starter-data-jpa` | ORM — write Java instead of raw SQL |
-| `postgresql` | PostgreSQL JDBC driver |
-
-**Test-only dependencies:**
-
-| Dependency | Purpose |
-|------------|---------|
-| `h2` | In-memory database for tests — no Postgres needed |
-| `spring-boot-starter-test` | JUnit 5 + MockMvc test framework |
-
-### Compile and package
-
-```bash
-cd employee-app/backend-java
-mvn package -DskipTests
-```
-
-Watch the output. Maven will:
-1. Download all dependencies on the first run (cached after that)
-2. Compile `.java` source files into `.class` bytecode
-3. Bundle everything into a JAR file
-
-After it completes:
-
-```bash
-ls target/
-```
-
-You will see `employee-backend-1.0.0.jar` — this is the build artifact. This file contains your compiled code and all dependencies. It is self-contained and can run on any machine with Java installed.
-
-### Run the application
-
-```bash
-DATABASE_URL=jdbc:postgresql://localhost:5432/employees \
-DB_USER=postgres \
-DB_PASS=postgres \
-java -jar target/employee-backend-1.0.0.jar
-```
-
-### Verify it is running
-
-```bash
-curl http://localhost:5000/api/health
-```
-
-```json
-{"status": "healthy", "db": "connected"}
-```
-
-```bash
-curl http://localhost:5000/api/employees
-```
-
-```json
-[]
-```
-
-### Add an employee
-
-```bash
-curl -X POST http://localhost:5000/api/employees \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Alice Brown","email":"alice@example.com","role":"Director","department":"Engineering"}'
-```
-
-### Run the tests
-
-Stop the running app first (`Ctrl+C`), then:
-
-```bash
-mvn test
-```
-
-Tests use H2 in memory — no Postgres needed.
-
----
-
 ## Build Summary
 
 | | Python | Node.js | Java |
@@ -860,111 +564,6 @@ The build step is the gate. Nothing runs without it.
 
 ---
 
-## How to Run, Test and Access Each Backend
-
-### Prerequisites — start the database
-
-```bash
-docker run -d --name pg \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=employees \
-  -p 5432:5432 \
-  postgres:15
-```
-
-Leave this running for all three backends.
-
----
-
-### Python
-
-**Run:**
-```bash
-cd employee-app/backend
-pip install -r requirements.txt
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/employees python app.py
-```
-
-Windows shortcut:
-```bat
-run.bat
-```
-
-**Test:**
-```bash
-pytest
-```
-Tests use SQLite in-memory — no Postgres needed.
-
-**Access:**
-
-| URL | Description |
-|-----|-------------|
-| `http://localhost:5000/api/health` | Health check |
-| `http://localhost:5000/api/employees` | List employees |
-| `http://localhost:5000/api/stats` | Stats |
-| `http://localhost:5000/metrics` | Prometheus metrics |
-
----
-
-### Node.js
-
-**Run:**
-```bash
-cd employee-app/backend-node
-npm install
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/employees npm start
-```
-
-Windows shortcut:
-```bat
-run.bat
-```
-
-**Test:**
-```bash
-npm test
-```
-Tests connect to the real Postgres database — make sure it is running.
-
-**Access:**
-
-| URL | Description |
-|-----|-------------|
-| `http://localhost:5000/api/health` | Health check |
-| `http://localhost:5000/api/employees` | List employees |
-| `http://localhost:5000/api/stats` | Stats |
-
----
-
-### Java
-
-**Run:**
-```bash
-cd employee-app/backend-java
-mvn package -DskipTests
-DATABASE_URL=jdbc:postgresql://localhost:5432/employees DB_USER=postgres DB_PASS=postgres java -jar target/employee-backend-1.0.0.jar
-```
-
-**Test:**
-```bash
-mvn test
-```
-Tests use H2 in-memory — no Postgres needed.
-
-**Access:**
-
-| URL | Description |
-|-----|-------------|
-| `http://localhost:5000/api/health` | Health check |
-| `http://localhost:5000/api/employees` | List employees |
-| `http://localhost:5000/api/stats` | Stats |
-
----
-
----
-
 ## EC2 Deployment — Run the App on Amazon Linux 2023
 
 ### Why EC2 for this stage?
@@ -973,29 +572,39 @@ Before containers and Kubernetes, applications ran directly on virtual machines.
 
 On EC2 you run the app directly — no Docker required. Docker is the next phase.
 
-### Recommended Instance
+---
 
-| Setting | Value | Reason |
-|---------|-------|--------|
-| Instance type | `t3.medium` | 2 vCPU, 4 GB RAM — enough for all three backends + PostgreSQL |
-| AMI | Amazon Linux 2023 | AWS-maintained, ships with `dnf`, modern glibc |
-| Storage | 20 GB gp3 | Enough for OS, runtimes, Maven local repo (`~/.m2`) |
-| Region | `us-east-1` | Matches the rest of the project |
+## Step 0 — Launch the EC2 Instance
 
-### Security Group
+In the AWS Console, go to **EC2 → Launch Instance** and configure:
+
+| Setting | Value |
+|---------|-------|
+| Name | `employee-app-dev` |
+| AMI | Amazon Linux 2023 |
+| Instance type | `t3.medium` (2 vCPU, 4 GB RAM) |
+| Storage | 20 GB gp3 |
+| Key pair | Select or create one — you need this to SSH in |
+
+Create a **Security Group** with these inbound rules:
 
 | Port | Source | Purpose |
 |------|--------|---------|
-| 22 | Your IP | SSH |
-| 80 | 0.0.0.0/0 | Nginx (full stack) |
-| 5000 | 0.0.0.0/0 | Backend API |
-| 8080 | 0.0.0.0/0 | Frontend (Python HTTP server) |
+| 22 | My IP | SSH access |
+| 80 | 0.0.0.0/0 | Web interface (Nginx) |
+| 5000 | 0.0.0.0/0 | Backend API direct access |
+
+Launch the instance, then connect via SSH:
+
+```bash
+ssh -i your-key.pem ec2-user@<EC2_PUBLIC_IP>
+```
 
 ---
 
-### Prerequisites — Install All Dependencies
+## Step 1 — Install Prerequisites
 
-Once connected to the instance via SSH, run the following.
+Run these commands on the EC2 instance. This installs every runtime needed for all three backends.
 
 #### System update
 
@@ -1049,7 +658,7 @@ sudo dnf install -y postgresql15-server postgresql15
 sudo postgresql-setup --initdb
 sudo systemctl enable --now postgresql
 
-# Allow password authentication
+# Allow password authentication (must be done before creating users)
 sudo sed -i 's/ident/md5/g' /var/lib/pgsql/data/pg_hba.conf
 sudo systemctl restart postgresql
 
@@ -1061,7 +670,7 @@ GRANT ALL PRIVILEGES ON DATABASE employees TO postgres;
 EOF
 ```
 
-#### Nginx (for full-stack routing)
+#### Nginx
 
 ```bash
 sudo dnf install -y nginx
@@ -1069,7 +678,7 @@ sudo dnf install -y nginx
 
 ---
 
-### Clone the Repository
+## Step 2 — Clone the Repository
 
 ```bash
 cd ~
@@ -1077,56 +686,64 @@ git clone https://github.com/LandmakTechnology/employee-app.git
 cd employee-app/employee-app
 ```
 
----
-
-### Run with Scripts
-
-Three scripts are provided in the `scripts/` directory — one per backend. Each script runs three phases in sequence: **build**, **test**, then **start**. At the end it prints the URL to open in your browser.
+Make the scripts executable:
 
 ```bash
-# Make scripts executable (first time only)
 chmod +x scripts/*.sh
 ```
 
-| Script | Backend | Test database |
-|--------|---------|---------------|
-| `scripts/run-python.sh` | Python (Flask) | SQLite in-memory |
-| `scripts/run-node.sh` | Node.js (Express) | PostgreSQL |
-| `scripts/run-java.sh` | Java (Spring Boot) | H2 in-memory |
+---
 
-Run one at a time — they all use port 5000:
+## Practical 1 — Python Backend
+
+### What you will do
+
+1. Read the dependency file to understand what the app needs
+2. Run the script — it builds, tests, then starts the app
+3. Open the web interface in your browser
+4. Add employees and watch the logs update in real time
+5. Clean up before the next practical
+
+### Identify the language
 
 ```bash
-# Python
+ls backend/
+```
+
+You see `requirements.txt` → Python project, build tool is `pip`.
+
+```bash
+cat backend/requirements.txt
+```
+
+| Package | Purpose |
+|---------|---------|
+| `flask` | Web framework |
+| `flask-sqlalchemy` | ORM — Python classes instead of raw SQL |
+| `psycopg2-binary` | PostgreSQL driver |
+| `pytest` | Test runner |
+| `moto` | Mocks AWS services in tests |
+
+### Run the script
+
+```bash
 bash scripts/run-python.sh
-
-# Node.js
-bash scripts/run-node.sh
-
-# Java
-bash scripts/run-java.sh
 ```
 
-Each script outputs:
+The script runs three phases:
 
 ```
-============================================
-  Employee App — Python Backend
-============================================
-
 >>> PHASE 1: BUILD
 Installing Python dependencies...
-...
 Build complete.
 
 >>> PHASE 2: TEST
-Running tests...
-...
+Running tests (SQLite in-memory — no Postgres needed)...
 Tests passed.
 
 >>> PHASE 3: START
 Configuring Nginx...
-Starting backend on port 5000...
+Starting Python backend on port 5000...
 Backend is up.
 
 ============================================
@@ -1137,7 +754,199 @@ Backend is up.
 ============================================
 ```
 
-Open the URL printed at the end in your browser to access the full web interface.
+### Open the web interface
+
+Copy the URL printed at the end and open it in your browser. You will see the Employee Directory UI.
+
+Add a few employees using the form — enter a name, email, role, and department, then click Save.
+
+### Watch the logs
+
+Open a second terminal, SSH into the same instance, and run:
+
+```bash
+tail -f /tmp/backend.log
+```
+
+Every time you add, update, or delete an employee in the browser, you will see the HTTP request logged here in real time. This is what application logs look like — each line is one request the backend received.
+
+### Clean up
+
+Before running the next practical, stop the backend and reset Nginx:
+
+```bash
+# Kill the backend process (use the PID printed by the script)
+kill <PID>
+
+# Remove the Nginx config so the next script can write a fresh one
+sudo rm -f /etc/nginx/conf.d/employee-app.conf
+sudo systemctl reload nginx
+```
+
+---
+
+## Practical 2 — Node.js Backend
+
+### What you will do
+
+Same flow as Practical 1 — but this time the backend is Node.js. The frontend and database are identical. Only the backend language changes.
+
+### Identify the language
+
+```bash
+ls backend-node/
+```
+
+You see `package.json` → Node.js project, build tool is `npm`.
+
+```bash
+cat backend-node/package.json
+```
+
+| Package | Type | Purpose |
+|---------|------|---------|
+| `express` | dependency | Web framework |
+| `pg` | dependency | PostgreSQL client |
+| `jest` | devDependency | Test runner |
+| `supertest` | devDependency | HTTP testing |
+
+Note: `jest` and `supertest` are `devDependencies` — they are only needed to run tests, not to run the app.
+
+### Run the script
+
+```bash
+bash scripts/run-node.sh
+```
+
+```
+>>> PHASE 1: BUILD
+Installing Node.js dependencies...
+Build complete.
+
+>>> PHASE 2: TEST
+Running tests (requires Postgres)...
+Tests passed.
+
+>>> PHASE 3: START
+Configuring Nginx...
+Starting Node.js backend on port 5000...
+Backend is up.
+
+============================================
+  App is running!
+  Open: http://<EC2_PUBLIC_IP>
+  Logs: tail -f /tmp/backend.log
+  Stop: kill <PID>
+============================================
+```
+
+### Open the web interface
+
+Open the URL in your browser. The UI looks identical to Practical 1 — same frontend, same API shape. Add a few employees.
+
+### Watch the logs
+
+```bash
+tail -f /tmp/backend.log
+```
+
+You will see Node.js request logs as you interact with the app. Compare them to the Python logs from Practical 1 — the format is different but the information is the same.
+
+### Clean up
+
+```bash
+kill <PID>
+sudo rm -f /etc/nginx/conf.d/employee-app.conf
+sudo systemctl reload nginx
+```
+
+---
+
+## Practical 3 — Java Backend
+
+### What you will do
+
+Same flow — but this time the backend is Java (Spring Boot). Java requires a compile step before it can run, so the build phase takes longer and produces a JAR file.
+
+### Identify the language
+
+```bash
+ls backend-java/
+```
+
+You see `pom.xml` → Java project, build tool is Maven.
+
+```bash
+cat backend-java/pom.xml
+```
+
+| Dependency | Scope | Purpose |
+|------------|-------|---------|
+| `spring-boot-starter-web` | compile | Embedded Tomcat + HTTP routing |
+| `spring-boot-starter-data-jpa` | compile | ORM — Java classes instead of raw SQL |
+| `postgresql` | runtime | PostgreSQL JDBC driver |
+| `h2` | test | In-memory database for tests |
+| `spring-boot-starter-test` | test | JUnit 5 + MockMvc |
+
+Note: `h2` has `<scope>test</scope>` — it is never bundled into the production JAR.
+
+### Run the script
+
+```bash
+bash scripts/run-java.sh
+```
+
+```
+>>> PHASE 1: BUILD
+Compiling and packaging with Maven (skipping tests)...
+Build complete. Artifact: target/employee-backend-1.0.0.jar
+
+>>> PHASE 2: TEST
+Running tests (H2 in-memory — no Postgres needed)...
+Tests passed.
+
+>>> PHASE 3: START
+Configuring Nginx...
+Starting Java backend on port 5000...
+Backend is up.
+
+============================================
+  App is running!
+  Open: http://<EC2_PUBLIC_IP>
+  Logs: tail -f /tmp/backend.log
+  Stop: kill <PID>
+============================================
+```
+
+The build phase is slower than Python and Node.js — Maven is downloading dependencies and compiling source code into bytecode. After the first run, dependencies are cached in `~/.m2/repository/` and subsequent builds are fast.
+
+After Phase 1 completes, inspect the build artifact:
+
+```bash
+ls -lh backend-java/target/employee-backend-1.0.0.jar
+```
+
+This JAR contains your compiled code and all dependencies bundled inside. It is self-contained — no `pip install` or `npm install` needed to run it on another machine.
+
+### Open the web interface
+
+Open the URL in your browser. Same UI, same API — different backend language. Add a few employees.
+
+### Watch the logs
+
+```bash
+tail -f /tmp/backend.log
+```
+
+Spring Boot logs are more verbose than Python or Node.js — you will see the framework startup messages followed by request logs as you use the app.
+
+### Clean up
+
+```bash
+kill <PID>
+sudo rm -f /etc/nginx/conf.d/employee-app.conf
+sudo systemctl reload nginx
+```
 
 ---
 
