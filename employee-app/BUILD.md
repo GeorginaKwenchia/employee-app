@@ -595,10 +595,10 @@ mvn -version
 #### Node.js 18
 
 ```bash
-curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -
+curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo bash -
 sudo dnf install -y nodejs
-node --version   # v18.x.x
-npm --version    # 9.x.x
+node --version   # v22.x.x
+npm --version    # 10.x.x
 ```
 
 #### Python 3
