@@ -204,49 +204,6 @@ This is a skill you will use every day as a DevOps engineer. You will clone repo
 
 ---
 
-## How Each Language Builds
-
-### Python
-
-```
-1. pip install -r requirements.txt    ← download dependencies
-2. python app.py                      ← run directly (no compile step)
-```
-
-No compilation. No build artifact. The source code is the thing that runs.
-
-### Node.js
-
-```
-1. npm install                        ← download dependencies into node_modules/
-2. npm start                          ← run directly (no compile step)
-```
-
-No compilation. No build artifact. Like Python, the source code runs directly.
-
-### Java
-
-```
-1. mvn compile                        ← download dependencies + compile .java → .class
-2. mvn package                        ← bundle .class files into a JAR
-3. java -jar target/app.jar           ← run the JAR
-```
-
-Explicit compilation required. Produces a build artifact — the JAR file. The JAR is a self-contained package with your compiled code and all dependencies bundled inside.
-
-### The Maven lifecycle
-
-Maven has a fixed sequence of phases. Each phase includes all the ones before it:
-
-```
-mvn compile    →  download dependencies, compile source code
-mvn test       →  compile + run tests
-mvn package    →  compile + test + bundle into JAR
-mvn clean      →  delete all compiled output (target/ directory)
-```
-
----
-
 ## Java and the JVM
 
 Before you can understand Maven, you need to understand how Java actually runs.
