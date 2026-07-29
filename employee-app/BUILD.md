@@ -633,6 +633,14 @@ EOF
 sudo dnf install -y nginx
 ```
 
+#### Home directory permissions
+
+Nginx runs as the `nginx` user and cannot read files inside your home directory by default. Grant execute permission so Nginx can traverse the path to the frontend:
+
+```bash
+chmod o+x /home/ec2-user
+```
+
 ---
 
 ## Step 2 — Clone the Repository

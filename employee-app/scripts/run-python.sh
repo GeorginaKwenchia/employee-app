@@ -51,6 +51,9 @@ sudo nginx -t
 sudo systemctl enable --now nginx
 sudo systemctl reload nginx
 
+echo "Fixing home directory permissions for Nginx..."
+chmod o+x /home/ec2-user
+
 echo "Starting Python backend on port 5000..."
 cd "$BACKEND_DIR"
 DATABASE_URL=$DB_URL nohup python3 app.py > /tmp/backend.log 2>&1 &
@@ -65,7 +68,8 @@ for i in $(seq 1 15); do
     sleep 1
 done
 
-PUBLIC_IP=$(curl -sf http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || echo "<EC2_PUBLIC_IP>")
+TOKEN=$(curl -sf -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" 2>/dev/null)
+PUBLIC_IP=$(curl -sf -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || curl -sf http://checkip.amazonaws.com 2>/dev/null || echo "<EC2_PUBLIC_IP>")
 
 echo ""
 echo "============================================"
