@@ -123,12 +123,16 @@ def internal_error(e):
 
 # --- Helper ---
 def upload_photo(file):
-    """Upload a file to S3 and return the URL."""
-    filename = f"photos/{uuid4()}-{secure_filename(file.filename)}"
-    s3.upload_fileobj(file, S3_BUCKET, filename, ExtraArgs={"ContentType": file.content_type})
-    url = f"https://{S3_BUCKET}.s3.amazonaws.com/{filename}"
-    logger.info(f"Photo uploaded: {filename}")
-    return url
+    """Upload a file to S3 and return the URL. Returns None if S3 is unavailable."""
+    try:
+        filename = f"photos/{uuid4()}-{secure_filename(file.filename)}"
+        s3.upload_fileobj(file, S3_BUCKET, filename, ExtraArgs={"ContentType": file.content_type})
+        url = f"https://{S3_BUCKET}.s3.amazonaws.com/{filename}"
+        logger.info(f"Photo uploaded: {filename}")
+        return url
+    except Exception as e:
+        logger.warning(f"Photo upload skipped (S3 unavailable): {e}")
+        return None
 
 
 # --- Routes ---
