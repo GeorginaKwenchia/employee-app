@@ -1,15 +1,11 @@
 package com.landmark.employee;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
-
-import java.util.Map;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -20,7 +16,6 @@ class EmployeeControllerTest {
 
     @Autowired MockMvc mvc;
     @Autowired EmployeeRepository repo;
-    ObjectMapper json = new ObjectMapper();
 
     @BeforeEach
     void setUp() { repo.deleteAll(); }
@@ -42,11 +37,11 @@ class EmployeeControllerTest {
 
     @Test
     void createEmployee() throws Exception {
-        mvc.perform(post("/api/employees")
-           .contentType(MediaType.APPLICATION_JSON)
-           .content(json.writeValueAsString(Map.of(
-               "name", "Jane Doe", "email", "jane@example.com",
-               "role", "Engineer", "department", "Engineering"))))
+        mvc.perform(multipart("/api/employees")
+           .param("name", "Jane Doe")
+           .param("email", "jane@example.com")
+           .param("role", "Engineer")
+           .param("department", "Engineering"))
            .andExpect(status().isCreated())
            .andExpect(jsonPath("$.id").exists())
            .andExpect(jsonPath("$.name").value("Jane Doe"));
@@ -54,20 +49,25 @@ class EmployeeControllerTest {
 
     @Test
     void createEmployeeMissingFields() throws Exception {
-        mvc.perform(post("/api/employees")
-           .contentType(MediaType.APPLICATION_JSON)
-           .content(json.writeValueAsString(Map.of("name", "Incomplete"))))
+        mvc.perform(multipart("/api/employees")
+           .param("name", "Incomplete"))
            .andExpect(status().isBadRequest());
     }
 
     @Test
     void createDuplicateEmail() throws Exception {
-        String body = json.writeValueAsString(Map.of(
-            "name", "Bob", "email", "bob@example.com",
-            "role", "Manager", "department", "Sales"));
-        mvc.perform(post("/api/employees").contentType(MediaType.APPLICATION_JSON).content(body))
+        mvc.perform(multipart("/api/employees")
+           .param("name", "Bob")
+           .param("email", "bob@example.com")
+           .param("role", "Manager")
+           .param("department", "Sales"))
            .andExpect(status().isCreated());
-        mvc.perform(post("/api/employees").contentType(MediaType.APPLICATION_JSON).content(body))
+
+        mvc.perform(multipart("/api/employees")
+           .param("name", "Bob2")
+           .param("email", "bob@example.com")
+           .param("role", "Manager")
+           .param("department", "Sales"))
            .andExpect(status().isConflict());
     }
 
@@ -84,9 +84,10 @@ class EmployeeControllerTest {
         emp.setRole("Junior"); emp.setDepartment("Engineering");
         emp = repo.save(emp);
 
-        mvc.perform(put("/api/employees/" + emp.getId())
-           .contentType(MediaType.APPLICATION_JSON)
-           .content(json.writeValueAsString(Map.of("name", "Charlie Updated", "role", "Senior"))))
+        mvc.perform(multipart("/api/employees/" + emp.getId())
+           .param("name", "Charlie Updated")
+           .param("role", "Senior")
+           .with(req -> { req.setMethod("PUT"); return req; }))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.name").value("Charlie Updated"))
            .andExpect(jsonPath("$.role").value("Senior"));

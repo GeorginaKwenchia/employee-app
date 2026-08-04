@@ -62,16 +62,21 @@ describe("GET /api/employees/:id", () => {
 
 describe("POST /api/employees", () => {
   test("creates employee", async () => {
-    const res = await request(app).post("/api/employees").send({
-      name: "Alice", email: "alice@example.com", role: "Lead", department: "Engineering",
-    });
+    const res = await request(app)
+      .post("/api/employees")
+      .field("name", "Alice")
+      .field("email", "alice@example.com")
+      .field("role", "Lead")
+      .field("department", "Engineering");
     expect(res.status).toBe(201);
     expect(res.body.id).toBeDefined();
     expect(res.body.name).toBe("Alice");
   });
 
   test("returns 400 for missing fields", async () => {
-    const res = await request(app).post("/api/employees").send({ name: "Incomplete" });
+    const res = await request(app)
+      .post("/api/employees")
+      .field("name", "Incomplete");
     expect(res.status).toBe(400);
   });
 
@@ -80,10 +85,25 @@ describe("POST /api/employees", () => {
       "INSERT INTO employees (name, email, role, department) VALUES ($1,$2,$3,$4)",
       ["Bob", "bob@example.com", "Manager", "Sales"]
     );
-    const res = await request(app).post("/api/employees").send({
-      name: "Bob2", email: "bob@example.com", role: "Manager", department: "Sales",
-    });
+    const res = await request(app)
+      .post("/api/employees")
+      .field("name", "Bob2")
+      .field("email", "bob@example.com")
+      .field("role", "Manager")
+      .field("department", "Sales");
     expect(res.status).toBe(409);
+  });
+
+  test("creates employee with photo", async () => {
+    const res = await request(app)
+      .post("/api/employees")
+      .field("name", "Photo User")
+      .field("email", "photo@example.com")
+      .field("role", "Tester")
+      .field("department", "QA")
+      .attach("photo", Buffer.from("fake image data"), "photo.jpg");
+    expect(res.status).toBe(201);
+    expect(res.body.photo_url).toMatch(/^data:image\/jpeg;base64,/);
   });
 });
 
@@ -95,14 +115,17 @@ describe("PUT /api/employees/:id", () => {
     );
     const res = await request(app)
       .put(`/api/employees/${insert.rows[0].id}`)
-      .send({ name: "Charlie Updated", role: "Senior" });
+      .field("name", "Charlie Updated")
+      .field("role", "Senior");
     expect(res.status).toBe(200);
     expect(res.body.name).toBe("Charlie Updated");
     expect(res.body.role).toBe("Senior");
   });
 
   test("returns 404 for missing employee", async () => {
-    const res = await request(app).put("/api/employees/9999").send({ name: "Ghost" });
+    const res = await request(app)
+      .put("/api/employees/9999")
+      .field("name", "Ghost");
     expect(res.status).toBe(404);
   });
 });

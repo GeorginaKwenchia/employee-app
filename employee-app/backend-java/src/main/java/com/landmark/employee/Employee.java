@@ -25,8 +25,7 @@ public class Employee {
     @Column(length = 10)
     private String dob;
 
-    @Lob
-    @Column(name = "photo_data")
+    @Column(name = "photo_data", columnDefinition = "bytea")
     private byte[] photoData;
 
     @Column(name = "photo_filename", length = 255)
