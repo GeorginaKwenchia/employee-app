@@ -63,12 +63,12 @@ public class EmployeeController {
     @PutMapping("/employees/{id}")
     public ResponseEntity<?> update(@PathVariable Long id, @RequestBody Map<String, String> body) {
         return repo.findById(id).map(emp -> {
-            if (body.containsKey("name")) emp.setName(body.get("name"));
-            if (body.containsKey("email")) emp.setEmail(body.get("email"));
-            if (body.containsKey("role")) emp.setRole(body.get("role"));
-            if (body.containsKey("department")) emp.setDepartment(body.get("department"));
-            if (body.containsKey("dob")) emp.setDob(body.get("dob"));
-            if (body.containsKey("photo_url")) emp.setPhotoUrl(body.get("photo_url"));
+            if (body.get("name") != null && !body.get("name").isEmpty()) emp.setName(body.get("name"));
+            if (body.get("email") != null && !body.get("email").isEmpty()) emp.setEmail(body.get("email"));
+            if (body.get("role") != null && !body.get("role").isEmpty()) emp.setRole(body.get("role"));
+            if (body.get("department") != null && !body.get("department").isEmpty()) emp.setDepartment(body.get("department"));
+            if (body.get("dob") != null && !body.get("dob").isEmpty()) emp.setDob(body.get("dob"));
+            if (body.get("photo_url") != null && !body.get("photo_url").isEmpty()) emp.setPhotoUrl(body.get("photo_url"));
             return ResponseEntity.ok(repo.save(emp));
         }).orElse(ResponseEntity.notFound().build());
     }

@@ -19,7 +19,7 @@
 
 - Single-page app with modern UI (Inter font, colored avatar initials)
 - Dropdowns for department (10 options) and role (8 levels)
-- Search bar, date picker for DOB, stats banner, toast notifications
+- Search bar, date picker for DOB, stats banner, toast notifications, and employee editing
 - Communicates with backend via `/api` path prefix (routed by ALB)
 
 ---

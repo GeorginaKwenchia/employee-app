@@ -133,7 +133,7 @@
                         <div class="form-group">
                             <label>Department</label>
                             <select id="department" required>
-                                <option value="" disabled selected>Select department</option>
+                                <option value="" selected>Select department</option>
                                 <option value="Engineering">Engineering</option>
                                 <option value="Product">Product</option>
                                 <option value="Design">Design</option>
@@ -149,7 +149,7 @@
                         <div class="form-group">
                             <label>Role</label>
                             <select id="role" required>
-                                <option value="" disabled selected>Select role</option>
+                                <option value="" selected>Select role</option>
                                 <option value="Intern">Intern</option>
                                 <option value="Junior">Junior</option>
                                 <option value="Mid-Level">Mid-Level</option>
@@ -259,7 +259,10 @@
                             ${emp.email}
                         </div>
                     </div>
-                    <button class="btn btn-danger btn-sm" onclick="deleteEmployee(${emp.id})">Remove</button>
+                    <div style="display: flex; gap: 8px;">
+    <button class="btn btn-sm" style="background: #eef2ff; color: #4f46e5; border: 1px solid #c7d2fe;" onclick="editEmployee(${emp.id})">Edit</button>
+    <button class="btn btn-danger btn-sm" onclick="deleteEmployee(${emp.id})">Remove</button>
+</div>
                 </div>
             `).join("");
         }
@@ -313,6 +316,22 @@
             loadEmployees();
             loadStats();
         });
+
+        function editEmployee(id) {
+            const emp = allEmployees.find(e => e.id === id);
+            if (!emp) return;
+
+            document.getElementById("edit-id").value = emp.id;
+            document.getElementById("name").value = emp.name;
+            document.getElementById("email").value = emp.email;
+            document.getElementById("department").value = emp.department || "";
+            document.getElementById("role").value = emp.role || "";
+            document.getElementById("dob").value = emp.dob || "";
+            document.getElementById("form-title").textContent = "Edit Employee";
+            
+            // Scroll to form
+            document.querySelector(".form-card").scrollIntoView({ behavior: 'smooth' });
+        }
 
         async function deleteEmployee(id) {
             if (confirm("Remove this employee from the directory?")) {

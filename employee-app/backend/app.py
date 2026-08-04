@@ -136,6 +136,7 @@ def upload_photo(file):
 
 
 # --- Routes ---
+@app.route("/health", methods=["GET"])
 @app.route("/api/health", methods=["GET"])
 def health():
     try:
@@ -146,6 +147,7 @@ def health():
         return jsonify({"status": "unhealthy", "db": "disconnected"}), 503
 
 
+@app.route("/employees", methods=["GET"])
 @app.route("/api/employees", methods=["GET"])
 def get_employees():
     employees = Employee.query.order_by(Employee.name).all()
@@ -153,12 +155,14 @@ def get_employees():
     return jsonify([e.to_dict() for e in employees])
 
 
+@app.route("/employees/<int:id>", methods=["GET"])
 @app.route("/api/employees/<int:id>", methods=["GET"])
 def get_employee(id):
     employee = Employee.query.get_or_404(id)
     return jsonify(employee.to_dict())
 
 
+@app.route("/employees", methods=["POST"])
 @app.route("/api/employees", methods=["POST"])
 def create_employee():
     data = request.form
@@ -187,16 +191,17 @@ def create_employee():
     return jsonify(employee.to_dict()), 201
 
 
+@app.route("/employees/<int:id>", methods=["PUT"])
 @app.route("/api/employees/<int:id>", methods=["PUT"])
 def update_employee(id):
     employee = Employee.query.get_or_404(id)
     data = request.form
 
-    employee.name = data.get("name", employee.name)
-    employee.email = data.get("email", employee.email)
-    employee.role = data.get("role", employee.role)
-    employee.department = data.get("department", employee.department)
-    employee.dob = data.get("dob", employee.dob)
+    employee.name = data.get("name") or employee.name
+    employee.email = data.get("email") or employee.email
+    employee.role = data.get("role") or employee.role
+    employee.department = data.get("department") or employee.department
+    employee.dob = data.get("dob") or employee.dob
 
     if "photo" in request.files and request.files["photo"].filename:
         employee.photo_url = upload_photo(request.files["photo"])
@@ -206,6 +211,7 @@ def update_employee(id):
     return jsonify(employee.to_dict())
 
 
+@app.route("/employees/<int:id>", methods=["DELETE"])
 @app.route("/api/employees/<int:id>", methods=["DELETE"])
 def delete_employee(id):
     employee = Employee.query.get_or_404(id)
@@ -215,6 +221,7 @@ def delete_employee(id):
     return jsonify({"message": "Employee deleted"})
 
 
+@app.route("/stats", methods=["GET"])
 @app.route("/api/stats", methods=["GET"])
 def get_stats():
     """Returns employee stats: total count, department breakdown, latest hire."""
