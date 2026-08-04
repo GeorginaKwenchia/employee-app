@@ -3,10 +3,12 @@ package com.landmark.employee;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.util.*;
+import java.util.Base64;
 
 @RestController
 @RequestMapping("/api")
@@ -44,9 +46,13 @@ public class EmployeeController {
     }
 
     @PostMapping("/employees")
-    public ResponseEntity<?> create(@RequestBody Map<String, String> body) {
-        String name = body.get("name"), email = body.get("email"),
-               role = body.get("role"), department = body.get("department");
+    public ResponseEntity<?> create(
+            @RequestParam("name") String name,
+            @RequestParam("email") String email,
+            @RequestParam("role") String role,
+            @RequestParam("department") String department,
+            @RequestParam(value = "dob", required = false) String dob,
+            @RequestParam(value = "photo", required = false) MultipartFile photo) {
         if (name == null || email == null || role == null || department == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "Missing required fields"));
         }
@@ -56,19 +62,41 @@ public class EmployeeController {
         Employee emp = new Employee();
         emp.setName(name); emp.setEmail(email);
         emp.setRole(role); emp.setDepartment(department);
-        emp.setDob(body.get("dob")); emp.setPhotoUrl(body.get("photo_url"));
+        emp.setDob(dob);
+        if (photo != null && !photo.isEmpty()) {
+            try {
+                emp.setPhotoData(photo.getBytes());
+                emp.setPhotoFilename(photo.getOriginalFilename());
+            } catch (Exception e) {
+                return ResponseEntity.status(500).body(Map.of("error", "Photo upload failed"));
+            }
+        }
         return ResponseEntity.status(HttpStatus.CREATED).body(repo.save(emp));
     }
 
     @PutMapping("/employees/{id}")
-    public ResponseEntity<?> update(@PathVariable Long id, @RequestBody Map<String, String> body) {
+    public ResponseEntity<?> update(
+            @PathVariable Long id,
+            @RequestParam(value = "name", required = false) String name,
+            @RequestParam(value = "email", required = false) String email,
+            @RequestParam(value = "role", required = false) String role,
+            @RequestParam(value = "department", required = false) String department,
+            @RequestParam(value = "dob", required = false) String dob,
+            @RequestParam(value = "photo", required = false) MultipartFile photo) {
         return repo.findById(id).map(emp -> {
-            if (body.get("name") != null && !body.get("name").isEmpty()) emp.setName(body.get("name"));
-            if (body.get("email") != null && !body.get("email").isEmpty()) emp.setEmail(body.get("email"));
-            if (body.get("role") != null && !body.get("role").isEmpty()) emp.setRole(body.get("role"));
-            if (body.get("department") != null && !body.get("department").isEmpty()) emp.setDepartment(body.get("department"));
-            if (body.get("dob") != null && !body.get("dob").isEmpty()) emp.setDob(body.get("dob"));
-            if (body.get("photo_url") != null && !body.get("photo_url").isEmpty()) emp.setPhotoUrl(body.get("photo_url"));
+            if (name != null && !name.isEmpty()) emp.setName(name);
+            if (email != null && !email.isEmpty()) emp.setEmail(email);
+            if (role != null && !role.isEmpty()) emp.setRole(role);
+            if (department != null && !department.isEmpty()) emp.setDepartment(department);
+            if (dob != null && !dob.isEmpty()) emp.setDob(dob);
+            if (photo != null && !photo.isEmpty()) {
+                try {
+                    emp.setPhotoData(photo.getBytes());
+                    emp.setPhotoFilename(photo.getOriginalFilename());
+                } catch (Exception e) {
+                    return ResponseEntity.status(500).body(Map.of("error", "Photo upload failed"));
+                }
+            }
             return ResponseEntity.ok(repo.save(emp));
         }).orElse(ResponseEntity.notFound().build());
     }
@@ -80,6 +108,22 @@ public class EmployeeController {
         return ResponseEntity.ok(Map.of("message", "Employee deleted"));
     }
 
+    private Map<String, Object> convertToDto(Employee emp) {
+        String photoUrl = null;
+        if (emp.getPhotoData() != null) {
+            photoUrl = "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(emp.getPhotoData());
+        }
+        return Map.of(
+            "id", emp.getId(),
+            "name", emp.getName(),
+            "email", emp.getEmail(),
+            "role", emp.getRole(),
+            "department", emp.getDepartment(),
+            "dob", emp.getDob() != null ? emp.getDob() : "",
+            "photo_url", photoUrl != null ? photoUrl : ""
+        );
+    }
+
     @GetMapping("/stats")
     public Map<String, Object> stats() {
         List<Employee> all = repo.findAll();
@@ -89,7 +133,7 @@ public class EmployeeController {
         return Map.of(
             "total_employees", all.size(),
             "departments", departments,
-            "latest_hire", latest != null ? latest : "null",
+            "latest_hire", latest != null ? convertToDto(latest) : null,
             "version", "2.0.0"
         );
     }

@@ -25,8 +25,12 @@ public class Employee {
     @Column(length = 10)
     private String dob;
 
-    @Column(name = "photo_url", length = 500)
-    private String photoUrl;
+    @Lob
+    @Column(name = "photo_data")
+    private byte[] photoData;
+
+    @Column(name = "photo_filename", length = 255)
+    private String photoFilename;
 
     public Long getId() { return id; }
     public String getName() { return name; }
@@ -39,6 +43,8 @@ public class Employee {
     public void setDepartment(String department) { this.department = department; }
     public String getDob() { return dob; }
     public void setDob(String dob) { this.dob = dob; }
-    public String getPhotoUrl() { return photoUrl; }
-    public void setPhotoUrl(String photoUrl) { this.photoUrl = photoUrl; }
+    public byte[] getPhotoData() { return photoData; }
+    public void setPhotoData(byte[] photoData) { this.photoData = photoData; }
+    public String getPhotoFilename() { return photoFilename; }
+    public void setPhotoFilename(String photoFilename) { this.photoFilename = photoFilename; }
 }

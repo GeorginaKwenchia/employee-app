@@ -4,100 +4,334 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Employee Directory | Landmark</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Inter', sans-serif; background: #f0f2f5; min-height: 100vh; }
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+        }
 
         .header {
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: #fff;
-            padding: 20px 40px;
+            padding: 24px 40px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            box-shadow: 0 2px 20px rgba(0,0,0,0.1);
+            box-shadow: 0 10px 40px rgba(102, 126, 234, 0.3);
         }
-        .header .logo { display: flex; align-items: center; gap: 12px; }
-        .header .logo svg { width: 32px; height: 32px; }
-        .header .logo h1 { font-size: 20px; font-weight: 600; }
-        .header .env-badge { background: rgba(255,255,255,0.1); padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+        .header .logo { display: flex; align-items: center; gap: 14px; }
+        .header .logo svg { width: 36px; height: 36px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); }
+        .header .logo h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
+        .header .env-badge { 
+            background: rgba(255,255,255,0.15); 
+            padding: 8px 16px; 
+            border-radius: 24px; 
+            font-size: 12px; 
+            font-weight: 600; 
+            text-transform: uppercase; 
+            letter-spacing: 0.8px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
 
-        .layout { display: flex; max-width: 1400px; margin: 0 auto; padding: 30px; gap: 30px; }
-        .sidebar { width: 400px; flex-shrink: 0; }
+        .layout { display: flex; max-width: 1500px; margin: 0 auto; padding: 40px 30px; gap: 40px; }
+        .sidebar { width: 420px; flex-shrink: 0; }
         .main { flex: 1; }
 
-        .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 25px; }
-        .stat-card { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); text-align: center; transition: transform 0.2s, box-shadow 0.2s; }
-        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
-        .stat-card h3 { font-size: 28px; font-weight: 700; color: #1a1a2e; }
-        .stat-card p { font-size: 12px; color: #888; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px; }
+        .stat-card { 
+            background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%);
+            padding: 24px; 
+            border-radius: 16px; 
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08); 
+            text-align: center; 
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid rgba(102, 126, 234, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+        }
+        .stat-card:hover { 
+            transform: translateY(-8px); 
+            box-shadow: 0 12px 40px rgba(102, 126, 234, 0.2);
+        }
+        .stat-card h3 { font-size: 32px; font-weight: 800; background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .stat-card p { font-size: 11px; color: #888; margin-top: 8px; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600; }
 
-        .form-card { background: #fff; padding: 28px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); position: sticky; top: 30px; }
-        .form-card h2 { font-size: 18px; font-weight: 600; color: #1a1a2e; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
-        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-        .form-group { margin-bottom: 14px; }
+        .form-card { 
+            background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%);
+            padding: 32px; 
+            border-radius: 16px; 
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            position: sticky; 
+            top: 30px;
+            border: 1px solid rgba(102, 126, 234, 0.1);
+        }
+        .form-card h2 { 
+            font-size: 20px; 
+            font-weight: 700; 
+            color: #1a1a2e; 
+            margin-bottom: 24px; 
+            display: flex; 
+            align-items: center; 
+            gap: 10px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .form-group { margin-bottom: 16px; }
         .form-group.full { grid-column: span 2; }
-        .form-group label { display: block; font-size: 12px; font-weight: 500; color: #666; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.3px; }
+        .form-group label { 
+            display: block; 
+            font-size: 12px; 
+            font-weight: 600; 
+            color: #555; 
+            margin-bottom: 8px; 
+            text-transform: uppercase; 
+            letter-spacing: 0.4px; 
+        }
         .form-group input, .form-group select {
             width: 100%;
-            padding: 12px 14px;
-            border: 1.5px solid #e2e8f0;
-            border-radius: 8px;
+            padding: 12px 16px;
+            border: 2px solid #e8eef7;
+            border-radius: 10px;
             font-size: 14px;
             font-family: 'Inter', sans-serif;
-            transition: border-color 0.2s, box-shadow 0.2s;
+            transition: all 0.3s;
             background: #fff;
             appearance: none;
             -webkit-appearance: none;
         }
         .form-group select {
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23667eea' stroke-width='3'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
             background-repeat: no-repeat;
             background-position: right 14px center;
             padding-right: 36px;
         }
-        .form-group input:focus, .form-group select:focus { outline: none; border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
-        .form-group input[type="file"] { padding: 10px; background: #f8fafc; cursor: pointer; }
+        .form-group input:focus, .form-group select:focus { 
+            outline: none; 
+            border-color: #667eea; 
+            box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.15);
+        }
+        .form-group input[type="file"] { 
+            padding: 12px; 
+            background: linear-gradient(135deg, #f8f9ff, #f0f2f5);
+            cursor: pointer;
+            border: 2px dashed #e8eef7;
+        }
         .form-group input[type="date"] { cursor: pointer; }
-        .btn { padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; font-family: 'Inter', sans-serif; transition: all 0.2s; }
-        .btn-primary { background: #4f46e5; color: #fff; width: 100%; margin-top: 6px; }
-        .btn-primary:hover { background: #4338ca; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(79,70,229,0.3); }
-        .btn-danger { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; }
-        .btn-danger:hover { background: #dc2626; color: #fff; }
+        .btn { 
+            padding: 12px 24px; 
+            border: none; 
+            border-radius: 10px; 
+            cursor: pointer; 
+            font-size: 14px; 
+            font-weight: 600; 
+            font-family: 'Inter', sans-serif; 
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .btn-primary { 
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: #fff; 
+            width: 100%; 
+            margin-top: 8px;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+        .btn-primary:hover { 
+            transform: translateY(-2px); 
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        }
+        .btn-primary:active { transform: translateY(0); }
+        .btn-edit { 
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: #fff;
+            border: none;
+        }
+        .btn-edit:hover { background: linear-gradient(135deg, #5568d3, #6a3f8f); }
+        .btn-danger { 
+            background: linear-gradient(135deg, #f093fb, #f5576c);
+            color: #fff; 
+            border: none;
+        }
+        .btn-danger:hover { 
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(245, 87, 108, 0.3);
+        }
         .btn-sm { padding: 8px 14px; font-size: 12px; }
 
-        .section-title { font-size: 16px; font-weight: 600; color: #1a1a2e; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
-        .section-title span { font-size: 12px; color: #888; font-weight: 400; }
-        .search-bar { margin-bottom: 20px; }
-        .search-bar input { width: 100%; padding: 12px 16px 12px 40px; border: 1.5px solid #e2e8f0; border-radius: 10px; font-size: 14px; font-family: 'Inter', sans-serif; background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E") no-repeat 14px center; transition: border-color 0.2s; }
-        .search-bar input:focus { outline: none; border-color: #4f46e5; }
+        .section-title { 
+            font-size: 18px; 
+            font-weight: 700; 
+            color: #1a1a2e; 
+            margin-bottom: 20px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: space-between;
+        }
+        .section-title span { font-size: 12px; color: #888; font-weight: 500; }
+        .search-bar { margin-bottom: 24px; }
+        .search-bar input { 
+            width: 100%; 
+            padding: 12px 18px 12px 44px; 
+            border: 2px solid #e8eef7; 
+            border-radius: 12px; 
+            font-size: 14px; 
+            font-family: 'Inter', sans-serif; 
+            background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23667eea' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E") no-repeat 12px center; 
+            transition: all 0.3s;
+        }
+        .search-bar input:focus { 
+            outline: none; 
+            border-color: #667eea;
+            box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.15);
+        }
 
-        .employees-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
-        .emp-card { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: flex; gap: 16px; align-items: center; transition: transform 0.2s, box-shadow 0.2s; border: 1px solid transparent; }
-        .emp-card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.1); border-color: #e2e8f0; }
-        .emp-avatar { width: 52px; height: 52px; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 18px; flex-shrink: 0; overflow: hidden; }
+        .employees-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; }
+        .emp-card { 
+            background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%);
+            border-radius: 14px; 
+            padding: 20px; 
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08); 
+            display: flex; 
+            gap: 16px; 
+            align-items: flex-start;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid rgba(102, 126, 234, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        .emp-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .emp-card:hover { 
+            transform: translateY(-6px); 
+            box-shadow: 0 12px 40px rgba(102, 126, 234, 0.2);
+        }
+        .emp-card:hover::before { opacity: 1; }
+        .emp-avatar { 
+            width: 60px; 
+            height: 60px; 
+            border-radius: 12px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            color: #fff; 
+            font-weight: 700; 
+            font-size: 20px; 
+            flex-shrink: 0; 
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
         .emp-avatar img { width: 100%; height: 100%; object-fit: cover; }
         .emp-info { flex: 1; min-width: 0; }
-        .emp-info h3 { font-size: 15px; font-weight: 600; color: #1a1a2e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .emp-info .emp-role { font-size: 13px; color: #4f46e5; font-weight: 500; margin-top: 2px; }
-        .emp-info .emp-meta { font-size: 12px; color: #888; margin-top: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .emp-dept { display: inline-block; padding: 2px 8px; background: #f0f2f5; border-radius: 4px; font-size: 11px; color: #555; font-weight: 500; }
+        .emp-info h3 { 
+            font-size: 16px; 
+            font-weight: 700; 
+            color: #1a1a2e; 
+            white-space: nowrap; 
+            overflow: hidden; 
+            text-overflow: ellipsis;
+        }
+        .emp-info .emp-role { 
+            font-size: 13px; 
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: 600; 
+            margin-top: 4px; 
+        }
+        .emp-info .emp-meta { 
+            font-size: 12px; 
+            color: #888; 
+            margin-top: 6px; 
+            display: flex; 
+            align-items: center; 
+            gap: 8px; 
+            flex-wrap: wrap; 
+        }
+        .emp-dept { 
+            display: inline-block; 
+            padding: 4px 10px; 
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+            border-radius: 6px; 
+            font-size: 11px; 
+            color: #667eea; 
+            font-weight: 600;
+            border: 1px solid rgba(102, 126, 234, 0.2);
+        }
         .emp-age { font-size: 11px; color: #999; }
+        .emp-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
 
-        .toast { position: fixed; top: 24px; right: 24px; background: #1a1a2e; color: #fff; padding: 14px 24px; border-radius: 10px; display: none; z-index: 999; box-shadow: 0 10px 40px rgba(0,0,0,0.2); font-size: 14px; font-weight: 500; animation: slideIn 0.3s ease; }
-        @keyframes slideIn { from { transform: translateX(100px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .toast { 
+            position: fixed; 
+            top: 24px; 
+            right: 24px; 
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: #fff; 
+            padding: 16px 24px; 
+            border-radius: 12px; 
+            display: none; 
+            z-index: 999; 
+            box-shadow: 0 10px 40px rgba(102, 126, 234, 0.4);
+            font-size: 14px; 
+            font-weight: 600;
+            animation: slideIn 0.3s ease;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        @keyframes slideIn { 
+            from { transform: translateX(100px); opacity: 0; } 
+            to { transform: translateX(0); opacity: 1; } 
+        }
 
-        .empty-state { text-align: center; padding: 60px 20px; color: #888; grid-column: 1 / -1; }
-        .empty-state svg { width: 64px; height: 64px; margin-bottom: 16px; opacity: 0.4; }
-        .empty-state h3 { font-size: 16px; color: #555; margin-bottom: 8px; }
-        .empty-state p { font-size: 13px; }
+        .empty-state { 
+            text-align: center; 
+            padding: 80px 20px; 
+            color: #888; 
+            grid-column: 1 / -1; 
+        }
+        .empty-state svg { 
+            width: 80px; 
+            height: 80px; 
+            margin-bottom: 20px; 
+            opacity: 0.3;
+            color: #667eea;
+        }
+        .empty-state h3 { font-size: 18px; color: #555; margin-bottom: 10px; font-weight: 700; }
+        .empty-state p { font-size: 14px; color: #888; }
 
         @media (max-width: 900px) {
-            .layout { flex-direction: column; padding: 20px; }
+            .layout { flex-direction: column; padding: 20px; gap: 30px; }
             .sidebar { width: 100%; }
             .form-row { grid-template-columns: 1fr; }
             .form-group.full { grid-column: span 1; }
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
+            .employees-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -116,7 +350,7 @@
         <div class="sidebar">
             <div class="form-card">
                 <h2>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
                     <span id="form-title">Add Employee</span>
                 </h2>
                 <form id="employee-form">
@@ -164,7 +398,7 @@
                             <label>Date of Birth</label>
                             <input type="date" id="dob" required>
                         </div>
-                        <div class="form-group">
+                        <div class="form-group full">
                             <label>Profile Photo</label>
                             <input type="file" id="photo" accept="image/*">
                         </div>
@@ -194,7 +428,7 @@
         const API_URL = window.location.origin + "/api";
         let allEmployees = [];
 
-        const avatarColors = ["#4f46e5","#7c3aed","#db2777","#dc2626","#ea580c","#ca8a04","#16a34a","#0891b2","#2563eb","#9333ea"];
+        const avatarColors = ["#667eea","#764ba2","#f093fb","#f5576c","#fa709a","#fee140","#30cfd0","#330867","#ff6b6b","#4ecdc4"];
 
         function getInitials(name) {
             return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
@@ -250,19 +484,21 @@
                     <div class="emp-avatar" style="background: ${emp.photo_url ? 'transparent' : getColor(emp.name)}">
                         ${emp.photo_url ? `<img src="${emp.photo_url}" alt="${emp.name}">` : getInitials(emp.name)}
                     </div>
-                    <div class="emp-info">
-                        <h3>${emp.name}</h3>
-                        <div class="emp-role">${emp.role}</div>
-                        <div class="emp-meta">
-                            <span class="emp-dept">${emp.department}</span>
-                            ${emp.dob ? `<span class="emp-age">${calculateAge(emp.dob)}</span>` : ""}
-                            ${emp.email}
+                    <div style="flex: 1;">
+                        <div class="emp-info">
+                            <h3>${emp.name}</h3>
+                            <div class="emp-role">${emp.role}</div>
+                            <div class="emp-meta">
+                                <span class="emp-dept">${emp.department}</span>
+                                ${emp.dob ? `<span class="emp-age">${calculateAge(emp.dob)}</span>` : ""}
+                                <span>${emp.email}</span>
+                            </div>
+                        </div>
+                        <div class="emp-actions">
+                            <button class="btn btn-edit btn-sm" onclick="editEmployee(${emp.id})">Edit</button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteEmployee(${emp.id})">Remove</button>
                         </div>
                     </div>
-                    <div style="display: flex; gap: 8px;">
-    <button class="btn btn-sm" style="background: #eef2ff; color: #4f46e5; border: 1px solid #c7d2fe;" onclick="editEmployee(${emp.id})">Edit</button>
-    <button class="btn btn-danger btn-sm" onclick="deleteEmployee(${emp.id})">Remove</button>
-</div>
                 </div>
             `).join("");
         }

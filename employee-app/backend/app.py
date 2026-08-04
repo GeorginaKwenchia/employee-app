@@ -4,15 +4,11 @@ import time
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-import boto3
 import watchtower
 from werkzeug.utils import secure_filename
-from uuid import uuid4
 from prometheus_flask_exporter import PrometheusMetrics
 
 # --- Configuration ---
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-S3_BUCKET = os.environ.get("S3_BUCKET", "landmark-app-bucket-dev")
 LOG_GROUP = os.environ.get("LOG_GROUP", "/landmark/employee-app")
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "dev")
 
@@ -30,7 +26,6 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
 }
 
 db = SQLAlchemy(app)
-s3 = boto3.client("s3", region_name=AWS_REGION)
 
 # --- Logging Setup (stdout + CloudWatch) ---
 logger = logging.getLogger("employee-app")
@@ -43,17 +38,8 @@ stdout_handler.setFormatter(logging.Formatter(
 ))
 logger.addHandler(stdout_handler)
 
-# CloudWatch handler - streams to /landmark/employee-app log group
-try:
-    cw_handler = watchtower.CloudWatchLogHandler(
-        log_group_name=LOG_GROUP,
-        stream_name=f"{ENVIRONMENT}-{os.environ.get('HOSTNAME', 'local')}",
-        boto3_client=boto3.client("logs", region_name=AWS_REGION),
-    )
-    logger.addHandler(cw_handler)
-    logger.info("CloudWatch logging enabled")
-except Exception as e:
-    logger.warning(f"CloudWatch logging unavailable: {e}")
+# CloudWatch handler - streams to /landmark/employee-app log group (optional)
+# Disabled for local development - boto3 not required
 
 
 # --- Models ---
@@ -65,9 +51,14 @@ class Employee(db.Model):
     role = db.Column(db.String(100), nullable=False)
     department = db.Column(db.String(100), nullable=False)
     dob = db.Column(db.String(10))
-    photo_url = db.Column(db.String(500))
+    photo_data = db.Column(db.LargeBinary)  # Store image as binary data
+    photo_filename = db.Column(db.String(255))  # Store original filename
 
     def to_dict(self):
+        import base64
+        photo_url = None
+        if self.photo_data:
+            photo_url = f"data:image/jpeg;base64,{base64.b64encode(self.photo_data).decode()}"
         return {
             "id": self.id,
             "name": self.name,
@@ -75,7 +66,7 @@ class Employee(db.Model):
             "role": self.role,
             "department": self.department,
             "dob": self.dob,
-            "photo_url": self.photo_url,
+            "photo_url": photo_url,
         }
 
 
@@ -122,17 +113,16 @@ def internal_error(e):
 
 
 # --- Helper ---
-def upload_photo(file):
-    """Upload a file to S3 and return the URL. Returns None if S3 is unavailable."""
+def store_photo(file):
+    """Store a photo file in the database. Returns tuple of (photo_data, photo_filename)."""
     try:
-        filename = f"photos/{uuid4()}-{secure_filename(file.filename)}"
-        s3.upload_fileobj(file, S3_BUCKET, filename, ExtraArgs={"ContentType": file.content_type})
-        url = f"https://{S3_BUCKET}.s3.amazonaws.com/{filename}"
-        logger.info(f"Photo uploaded: {filename}")
-        return url
+        photo_data = file.read()
+        photo_filename = secure_filename(file.filename)
+        logger.info(f"Photo stored in database: {photo_filename} ({len(photo_data)} bytes)")
+        return photo_data, photo_filename
     except Exception as e:
-        logger.warning(f"Photo upload skipped (S3 unavailable): {e}")
-        return None
+        logger.warning(f"Photo storage failed: {e}")
+        return None, None
 
 
 # --- Routes ---
@@ -173,9 +163,9 @@ def create_employee():
     if Employee.query.filter_by(email=data["email"]).first():
         return jsonify({"error": "Email already exists"}), 409
 
-    photo_url = None
+    photo_data, photo_filename = None, None
     if "photo" in request.files and request.files["photo"].filename:
-        photo_url = upload_photo(request.files["photo"])
+        photo_data, photo_filename = store_photo(request.files["photo"])
 
     employee = Employee(
         name=data["name"],
@@ -183,7 +173,8 @@ def create_employee():
         role=data["role"],
         department=data["department"],
         dob=data.get("dob"),
-        photo_url=photo_url,
+        photo_data=photo_data,
+        photo_filename=photo_filename,
     )
     db.session.add(employee)
     db.session.commit()
@@ -204,7 +195,10 @@ def update_employee(id):
     employee.dob = data.get("dob") or employee.dob
 
     if "photo" in request.files and request.files["photo"].filename:
-        employee.photo_url = upload_photo(request.files["photo"])
+        photo_data, photo_filename = store_photo(request.files["photo"])
+        if photo_data:
+            employee.photo_data = photo_data
+            employee.photo_filename = photo_filename
 
     db.session.commit()
     logger.info(f"Employee updated: id={employee.id}")

@@ -4,8 +4,6 @@ from io import BytesIO
 from unittest.mock import patch, MagicMock
 
 os.environ["DATABASE_URL"] = "sqlite:///test.db"
-os.environ["S3_BUCKET"] = "test-bucket"
-os.environ["AWS_REGION"] = "us-east-1"
 
 from app import app, db, Employee
 
@@ -98,9 +96,7 @@ class TestCreateEmployee:
         })
         assert res.status_code == 409
 
-    @patch("app.s3")
-    def test_create_with_photo(self, mock_s3, client):
-        mock_s3.upload_fileobj = MagicMock()
+    def test_create_with_photo(self, client):
         data = {
             "name": "Photo User",
             "email": "photo@example.com",
@@ -115,7 +111,7 @@ class TestCreateEmployee:
         )
         assert res.status_code == 201
         assert res.get_json()["photo_url"] is not None
-        mock_s3.upload_fileobj.assert_called_once()
+        assert "data:image" in res.get_json()["photo_url"]
 
 
 class TestUpdateEmployee:
