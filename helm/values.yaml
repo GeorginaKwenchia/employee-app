@@ -12,10 +12,14 @@ frontend:
   replicas: 2
   port: 80
 
-# Service Account for S3 + Secrets Manager access
+# Service Account for Secrets Manager access
 serviceAccount:
   name: app-sa
   roleArn: "arn:aws:iam::075120018043:role/landmark-cluster-dev-app-sa"
+
+# AWS region
+aws:
+  region: "us-east-1"
 
 # External Secrets - AWS Secrets Manager
 externalSecrets:
@@ -26,11 +30,6 @@ externalSecrets:
 ingress:
   enabled: true
   ingressClass: alb
-
-# S3 bucket
-s3:
-  bucket: "landmark-app-bucket-dev"
-  region: "us-east-1"
 
 # CloudWatch Logging
 logging:

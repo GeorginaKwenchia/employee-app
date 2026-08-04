@@ -1,8 +1,6 @@
 import pytest
 import os
 from io import BytesIO
-from unittest.mock import patch, MagicMock
-
 os.environ["DATABASE_URL"] = "sqlite:///test.db"
 
 from app import app, db, Employee
