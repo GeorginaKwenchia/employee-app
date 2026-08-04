@@ -93,10 +93,10 @@ The Employee Directory App is a full-stack application with two containerised se
 │  │   └────────────────────────────────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐  │
-│  │     ECR      │  │      S3      │  │   Secrets    │  │  CloudWatch    │  │
-│  │  (2 repos)   │  │  (photos)    │  │   Manager    │  │  (logs+metrics)│  │
-│  └──────────────┘  └──────────────┘  └──────────────┘  └────────────────┘  │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐  │
+│  │     ECR      │  │   Secrets    │  │  CloudWatch    │  │
+│  │  (2 repos)   │  │   Manager    │  │  (logs+metrics)│  │
+│  └──────────────┘  └──────────────┘  └────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -200,8 +200,7 @@ ALB
   ▼
 Backend Pod (Flask)
   │
-  ├──▶ PostgreSQL (RDS)          — employee records
-  ├──▶ S3 (landmark-app-bucket)  — photo storage/retrieval
+  ├──▶ PostgreSQL (RDS)          — employee records + photos (stored as binary)
   └──▶ CloudWatch Logs           — structured JSON request logs
 ```
 
@@ -264,7 +263,7 @@ Grafana (queries Prometheus datasource)
   │  Platform Dashboard: node CPU/memory, pod counts
 
 Flask Backend
-  │  Structured JSON logs (watchtower)
+  │  Structured JSON logs (stdout)
   │
   ▼
 CloudWatch Logs: /landmark/employee-app
@@ -291,7 +290,7 @@ Grafana (queries CloudWatch datasource via IRSA)
 
 | Role | K8s Service Account | Permissions |
 |------|--------------------|----|
-| `landmark-cluster-dev-app-sa` | `employee-app:app-sa`, `employee-app:employee-app-grafana` | S3 read/write, ECR pull, Secrets Manager read, CloudWatch logs/metrics |
+| `landmark-cluster-dev-app-sa` | `employee-app:app-sa`, `employee-app:employee-app-grafana` | ECR pull, Secrets Manager read, CloudWatch logs/metrics |
 | `landmark-cluster-dev-lb-controller` | `kube-system:aws-load-balancer-controller` | EC2/ELB management for ALB/NLB provisioning |
 | `landmark-cluster-dev-ebs-csi` | `kube-system:ebs-csi-controller-sa` | EBS volume create/attach/delete for PVC provisioning |
 
@@ -487,14 +486,11 @@ docker run -d --name pg \
 | `flask` | 3.1.0 | Web framework |
 | `flask-cors` | 5.0.0 | Cross-origin request support |
 | `flask-sqlalchemy` | 3.1.1 | ORM — maps Python classes to DB tables |
-| `psycopg2-binary` | 2.9.9 | PostgreSQL driver |
-| `boto3` | 1.35.0 | AWS SDK (S3, CloudWatch) |
+| `psycopg2-binary` | 2.9.12 | PostgreSQL driver |
 | `gunicorn` | 23.0.0 | Production WSGI server (Docker only) |
-| `watchtower` | 3.3.0 | Streams logs to CloudWatch |
 | `prometheus-flask-exporter` | 0.23.1 | Exposes `/metrics` for Prometheus |
 | `pytest` | 8.3.0 | Test runner |
 | `pytest-flask` | 1.3.0 | Flask test client helpers |
-| `moto` | 5.0.0 | Mocks AWS services in tests |
 
 ### Install & Run
 
@@ -525,6 +521,7 @@ pytest
 | `express` | ^4.18.2 | Web framework |
 | `cors` | ^2.8.5 | Cross-origin request support |
 | `pg` | ^8.11.3 | PostgreSQL client |
+| `multer` | ^1.4.5-lts.1 | Multipart form handling for photo uploads |
 
 **Test-only (`devDependencies`):**
 
@@ -682,14 +679,11 @@ helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
 ### 4. Update Helm Values
 
 ```bash
-# Get outputs
-terraform output s3_access_role_arn
-terraform output app_bucket_name
+terraform output app_role_arn
 ```
 
 Update `helm/values.yaml`:
-- `serviceAccount.roleArn` ← `s3_access_role_arn`
-- `s3.bucket` ← `app_bucket_name`
+- `serviceAccount.roleArn` ← `app_role_arn`
 
 ### 5. Build and Push Images
 
