@@ -476,12 +476,25 @@ docker run -d \
   postgres:15
 ```
 
-Verify Postgres is ready:
+Wait for Postgres to be ready before starting the backend — it takes a few seconds to initialise:
+
+```bash
+# Poll until Postgres accepts connections
+until docker exec db pg_isready -U postgres; do
+  echo "Waiting for database..."
+  sleep 2
+done
+echo "Database is ready."
+```
+
+Or check manually:
 
 ```bash
 docker exec db pg_isready -U postgres
 # /var/run/postgresql:5432 - accepting connections
 ```
+
+Do not proceed to the next step until you see `accepting connections`.
 
 **Step 3 — Start the backend:**
 
@@ -513,11 +526,39 @@ docker run -d \
 
 **Step 5 — Open in your browser:**
 
+The frontend is mapped to port `8080` on your machine and the backend to port `5000`. Open:
+
 ```
 http://localhost:8080
 ```
 
 You will see the Employee Directory UI. Add employees using the form — the frontend calls the backend API which stores records in PostgreSQL.
+
+If you are running this on an EC2 instance instead of your local machine, replace `localhost` with the EC2 public IP:
+
+```
+http://<EC2_PUBLIC_IP>:8080
+```
+
+Make sure port `8080` is open in the EC2 security group.
+
+**Step 6 — Port forward (alternative access without opening ports):**
+
+If you cannot open ports on the host or want to access a container running on a remote machine through your local browser, use SSH port forwarding:
+
+```bash
+# Run this on your LOCAL machine (not the server)
+ssh -i your-key.pem \
+  -L 8080:localhost:8080 \
+  -L 5000:localhost:5000 \
+  ec2-user@<EC2_PUBLIC_IP>
+```
+
+This tunnels:
+- `localhost:8080` on your laptop → port `8080` on the EC2 instance (frontend)
+- `localhost:5000` on your laptop → port `5000` on the EC2 instance (backend)
+
+Then open `http://localhost:8080` in your browser — traffic travels through the SSH tunnel to the containers on the remote server. No need to open any ports in the security group beyond port `22`.
 
 **Verify all three containers are running:**
 
