@@ -655,6 +655,51 @@ docker run -d \
 
 Now `backend` can reach `db` by name because they are on the same user-defined network. Open `http://localhost:8080` — the full app is running.
 
+### Testing container communication
+
+Once containers are on the same network, verify they can actually reach each other:
+
+```bash
+# Ping db from inside the backend container (by name)
+docker exec backend ping -c 3 db
+
+# Ping backend from inside the frontend container
+docker exec frontend ping -c 3 backend
+
+# curl the backend health endpoint from inside the frontend container
+docker exec frontend curl -s http://backend:5000/api/health
+
+# Open a shell inside backend and test the DB connection manually
+docker exec -it backend sh
+  # inside the container:
+  python -c "import psycopg2; psycopg2.connect('postgresql://postgres:postgres@db:5432/employees'); print('connected')"
+  exit
+```
+
+### Inspecting the network
+
+```bash
+# See which containers are connected and their IP addresses
+docker network inspect employee-network
+
+# Check which networks a specific container is on
+docker inspect backend --format '{{json .NetworkSettings.Networks}}'
+
+# Connect a running container to a network
+docker network connect employee-network some-other-container
+
+# Disconnect a container from a network
+docker network disconnect employee-network some-other-container
+```
+
+### What to look for
+
+| Test | Expected result | Problem if it fails |
+|------|----------------|--------------------|
+| `ping db` from backend | `3 packets transmitted, 3 received` | Containers not on same network |
+| `curl backend:5000/api/health` from frontend | `{"status":"healthy"}` | Backend not started or wrong port |
+| `docker network inspect` | Both containers listed under `Containers` | Container started without `--network` flag |
+
 ```bash
 # Remove a network (all containers must be disconnected first)
 docker network rm employee-network
@@ -707,6 +752,64 @@ docker volume prune
 
 Now if you stop and remove the `db` container and start a new one with the same volume, all your data is still there.
 
+### Testing that volumes work
+
+```bash
+# 1. Start postgres with a named volume
+docker run -d \
+  --name db \
+  --network employee-network \
+  -v postgres-data:/var/lib/postgresql/data \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=employees \
+  postgres:15
+
+# 2. Wait for it to be ready
+until docker exec db pg_isready -U postgres; do sleep 1; done
+
+# 3. Insert a test record
+docker exec db psql -U postgres -d employees \
+  -c "CREATE TABLE IF NOT EXISTS test (id SERIAL, val TEXT); INSERT INTO test (val) VALUES ('persisted');"
+
+# 4. Remove the container
+docker rm -f db
+
+# 5. Start a brand new container with the SAME volume
+docker run -d \
+  --name db \
+  --network employee-network \
+  -v postgres-data:/var/lib/postgresql/data \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=employees \
+  postgres:15
+
+until docker exec db pg_isready -U postgres; do sleep 1; done
+
+# 6. Query — data is still there
+docker exec db psql -U postgres -d employees -c "SELECT * FROM test;"
+# val
+# -----------
+# persisted
+```
+
+If you see `persisted` in the output, the volume is working correctly.
+
+### Inspecting volumes
+
+```bash
+# See where Docker stores the volume data on the host
+docker volume inspect postgres-data
+# "Mountpoint": "/var/lib/docker/volumes/postgres-data/_data"
+
+# List all volumes
+docker volume ls
+
+# See what files are inside the volume (via a temporary container)
+docker run --rm -v postgres-data:/data alpine ls /data
+```
+
 ### Bind mounts — for development
 
 A bind mount maps a directory on your host machine directly into the container. Changes you make to files on your host are immediately reflected inside the container — no rebuild needed.
@@ -755,47 +858,211 @@ ENVIRONMENT=dev
 
 ---
 
-## Docker Image Tagging and Registries
+## Docker Image Registries
 
-### Tagging
+Once you build an image, you need somewhere to store it so other machines (CI/CD pipelines, servers, Kubernetes nodes) can pull it. That place is called a **registry**.
 
-A tag identifies a specific version of an image. The format is:
+```
+docker build  →  image (local only)
+docker push   →  image stored in registry (accessible anywhere)
+docker pull   →  image downloaded from registry onto any machine
+```
+
+### Image tag format
+
+A tag identifies exactly which image and version to use:
 
 ```
 registry/repository:tag
 ```
 
-Examples:
+| Example | Registry | Repository | Tag |
+|---------|----------|------------|-----|
+| `postgres:15` | Docker Hub (default) | `postgres` | `15` |
+| `nginx:alpine` | Docker Hub | `nginx` | `alpine` |
+| `yourname/employee-backend:v1` | Docker Hub | `yourname/employee-backend` | `v1` |
+| `075120018043.dkr.ecr.us-east-1.amazonaws.com/employee-backend:v1` | AWS ECR | `employee-backend` | `v1` |
 
-```
-postgres:15                                          ← Docker Hub official image
-nginx:alpine                                         ← Docker Hub official image, alpine variant
-075120018043.dkr.ecr.us-east-1.amazonaws.com/employee-backend:v1   ← AWS ECR private image
-```
+---
+
+## Docker Hub
+
+**Docker Hub** is the default public registry. When you run `docker pull postgres:15`, Docker fetches it from Docker Hub automatically.
+
+### Create a Docker Hub account
+
+1. Go to [https://hub.docker.com](https://hub.docker.com)
+2. Click **Sign up** — create a free account
+3. Your username becomes part of every image name you push: `yourusername/image-name`
+
+### Create a repository on Docker Hub
+
+A **repository** holds all versions (tags) of one image.
+
+**Public repository** (anyone can pull, free):
+1. Log in to Docker Hub
+2. Click **Create Repository**
+3. Enter a name, e.g. `employee-backend`
+4. Set visibility to **Public**
+5. Click **Create**
+
+**Private repository** (only you and invited collaborators can pull, free tier allows 1 private repo):
+1. Same steps as above
+2. Set visibility to **Private**
+3. Click **Create**
+
+To pull from a private repo on another machine, that machine must be logged in with `docker login`.
+
+### Push an image to Docker Hub
 
 ```bash
-# Tag an image
-docker tag employee-backend:v1 employee-backend:latest
-
-# Tag for pushing to ECR
-docker tag employee-backend:v1 075120018043.dkr.ecr.us-east-1.amazonaws.com/employee-backend:v1
-```
-
-### Pushing to a registry
-
-```bash
-# Login to Docker Hub
+# Step 1 — log in
 docker login
+# Enter your Docker Hub username and password
 
-# Push to Docker Hub
+# Step 2 — tag your image with your Docker Hub username
+docker tag employee-backend:v1 yourusername/employee-backend:v1
+
+# Step 3 — push
 docker push yourusername/employee-backend:v1
+```
 
-# Login to AWS ECR
+### Pull the image on another machine
+
+```bash
+# Public repo — no login needed
+docker pull yourusername/employee-backend:v1
+
+# Private repo — must log in first
+docker login
+docker pull yourusername/employee-backend:v1
+```
+
+### Verify the push worked
+
+```bash
+# Remove the local image to prove you're pulling from the registry
+docker rmi yourusername/employee-backend:v1
+
+# Pull it back down
+docker pull yourusername/employee-backend:v1
+
+# Run it
+docker run -d -p 5000:5000 yourusername/employee-backend:v1
+```
+
+---
+
+## AWS ECR (Elastic Container Registry)
+
+**ECR** is AWS's private container registry. It integrates natively with EKS, ECS, and IAM — no separate credentials needed when running on AWS with the right IAM role.
+
+### Why ECR over Docker Hub for AWS workloads
+
+| | Docker Hub | AWS ECR |
+|---|---|---|
+| Privacy | Public by default | Private by default |
+| Auth on AWS | Requires stored credentials | IAM role (no credentials needed) |
+| Network | Public internet | Within AWS network (faster, no egress cost) |
+| Scanning | Basic | Built-in vulnerability scanning |
+| Cost | Free (with limits) | $0.10/GB storage, free data transfer within AWS |
+
+### Create an ECR repository
+
+**Via AWS Console:**
+1. Go to **ECR** in the AWS Console
+2. Click **Create repository**
+3. Choose **Private**
+4. Enter a name, e.g. `employee-backend`
+5. Enable **Scan on push** (optional but recommended)
+6. Click **Create repository**
+
+**Via AWS CLI:**
+
+```bash
+# Create a private repository
+aws ecr create-repository \
+  --repository-name employee-backend \
+  --region us-east-1
+
+# Create a second one for the frontend
+aws ecr create-repository \
+  --repository-name employee-frontend \
+  --region us-east-1
+
+# List your repositories
+aws ecr describe-repositories --region us-east-1
+```
+
+The output gives you the repository URI:
+```
+075120018043.dkr.ecr.us-east-1.amazonaws.com/employee-backend
+```
+
+### Authenticate Docker to ECR
+
+ECR uses temporary tokens (valid 12 hours). You must authenticate before pushing or pulling:
+
+```bash
+aws ecr get-login-password --region us-east-1 | \
+  docker login --username AWS --password-stdin 075120018043.dkr.ecr.us-east-1.amazonaws.com
+# Login Succeeded
+```
+
+### Push an image to ECR
+
+```bash
+# Step 1 — build the image
+docker build -t employee-backend:v1 ./backend
+
+# Step 2 — tag it with the full ECR URI
+docker tag employee-backend:v1 \
+  075120018043.dkr.ecr.us-east-1.amazonaws.com/employee-backend:v1
+
+# Step 3 — push
+docker push 075120018043.dkr.ecr.us-east-1.amazonaws.com/employee-backend:v1
+```
+
+### Pull an image from ECR
+
+```bash
+# Authenticate first (if not already done)
 aws ecr get-login-password --region us-east-1 | \
   docker login --username AWS --password-stdin 075120018043.dkr.ecr.us-east-1.amazonaws.com
 
-# Push to ECR
-docker push 075120018043.dkr.ecr.us-east-1.amazonaws.com/employee-backend:v1
+# Pull
+docker pull 075120018043.dkr.ecr.us-east-1.amazonaws.com/employee-backend:v1
+
+# Run
+docker run -d -p 5000:5000 \
+  075120018043.dkr.ecr.us-east-1.amazonaws.com/employee-backend:v1
+```
+
+### List images in a repository
+
+```bash
+aws ecr list-images \
+  --repository-name employee-backend \
+  --region us-east-1
+```
+
+### Delete an image from ECR
+
+```bash
+aws ecr batch-delete-image \
+  --repository-name employee-backend \
+  --image-ids imageTag=v1 \
+  --region us-east-1
+```
+
+### Delete a repository
+
+```bash
+# --force removes all images inside first
+aws ecr delete-repository \
+  --repository-name employee-backend \
+  --force \
+  --region us-east-1
 ```
 
 ---
@@ -932,11 +1199,27 @@ Docker Compose will:
 2. Build the `frontend` image from `./frontend/Dockerfile`
 3. Pull the `postgres:15` image from Docker Hub
 4. Create a shared network for all three services
-5. Start `db` first, then `backend`, then `frontend`
+5. Start `db` first (waits for healthcheck), then `backend`, then `frontend`
 
 Open `http://localhost:8080` — the full application is running.
 
-Test the API directly:
+### Managing a running Compose stack
+
+```bash
+# See all running services and their status
+docker compose ps
+
+# Follow logs for all services at once
+docker compose logs -f
+
+# Follow logs for one service only
+docker compose logs -f backend
+
+# See the last 50 lines from a service
+docker compose logs --tail=50 backend
+```
+
+### Testing the API
 
 ```bash
 # Health check
@@ -956,16 +1239,64 @@ curl -X POST http://localhost:5000/api/employees \
 curl http://localhost:5000/api/stats
 ```
 
-Stop everything:
+### Interacting with running services
 
 ```bash
-docker compose down
+# Open a shell inside the backend container
+docker compose exec backend sh
+
+# Connect to the database directly
+docker compose exec db psql -U postgres -d employees
+
+# Run a one-off command without entering the container
+docker compose exec db psql -U postgres -d employees -c "SELECT * FROM employees;"
+
+# Test that backend can reach db by name (from inside the backend container)
+docker compose exec backend sh -c "python -c \"import psycopg2; psycopg2.connect('postgresql://postgres:postgres@db:5432/employees'); print('DB reachable')\""
 ```
 
-Stop and wipe the database:
+### Rebuilding and restarting
 
 ```bash
+# Rebuild a single service after a code change (without restarting others)
+docker compose build backend
+docker compose up -d --no-deps backend
+
+# Restart a single service
+docker compose restart backend
+
+# Pull latest base images and rebuild everything
+docker compose pull
+docker compose up --build -d
+```
+
+### Scaling a service
+
+```bash
+# Run 3 instances of the backend
+docker compose up -d --scale backend=3
+
+# Check all instances are running
+docker compose ps
+```
+
+### Stopping and cleanup
+
+```bash
+# Stop all services (containers removed, volumes and images kept)
+docker compose down
+
+# Stop and wipe the database volume
 docker compose down -v
+
+# Stop and remove images too
+docker compose down --rmi all
+
+# Stop without removing containers (pause)
+docker compose stop
+
+# Start previously stopped containers (no rebuild)
+docker compose start
 ```
 
 ---
@@ -1021,31 +1352,70 @@ docker exec -it name sh        # shell into container
 
 ### Networks
 ```bash
-docker network create name     # create network
-docker network ls              # list networks
-docker network inspect name    # inspect network
-docker network rm name         # remove network
+docker network create name             # create network
+docker network ls                      # list networks
+docker network inspect name            # inspect network (see connected containers + IPs)
+docker network connect name container  # connect container to network
+docker network disconnect name cont    # disconnect container
+docker network rm name                 # remove network
+docker exec c1 ping -c 3 c2            # test connectivity between containers
+docker exec c1 curl http://c2:port     # test HTTP between containers
 ```
 
 ### Volumes
 ```bash
-docker volume create name      # create volume
-docker volume ls               # list volumes
-docker volume inspect name     # inspect volume
-docker volume rm name          # remove volume
-docker volume prune            # remove unused volumes
+docker volume create name              # create volume
+docker volume ls                       # list volumes
+docker volume inspect name             # inspect volume (see host path)
+docker volume rm name                  # remove volume
+docker volume prune                    # remove unused volumes
+docker run -v name:/path image         # mount named volume
+docker run -v $(pwd)/dir:/path image   # bind mount
+docker run --rm -v name:/data alpine ls /data  # inspect volume contents
+```
+
+### Docker Hub
+```bash
+docker login                                    # log in to Docker Hub
+docker tag image:tag user/repo:tag              # tag for Docker Hub
+docker push user/repo:tag                       # push to Docker Hub
+docker pull user/repo:tag                       # pull from Docker Hub
+```
+
+### AWS ECR
+```bash
+# Authenticate
+aws ecr get-login-password --region us-east-1 | \
+  docker login --username AWS --password-stdin <account>.dkr.ecr.us-east-1.amazonaws.com
+
+# Create repo
+aws ecr create-repository --repository-name name --region us-east-1
+
+# Tag and push
+docker tag image:tag <account>.dkr.ecr.us-east-1.amazonaws.com/name:tag
+docker push <account>.dkr.ecr.us-east-1.amazonaws.com/name:tag
+
+# List images
+aws ecr list-images --repository-name name --region us-east-1
 ```
 
 ### Docker Compose
 ```bash
-docker compose up --build      # build and start
-docker compose up -d           # start in background
-docker compose down            # stop and remove
-docker compose down -v         # stop and remove including volumes
-docker compose ps              # list services
-docker compose logs -f svc     # follow service logs
-docker compose exec svc sh     # shell into service
-docker compose build svc       # rebuild a service
+docker compose up --build          # build and start
+docker compose up -d --build       # start in background
+docker compose ps                  # list services
+docker compose logs -f             # follow all logs
+docker compose logs -f svc         # follow one service
+docker compose exec svc sh         # shell into service
+docker compose build svc           # rebuild one service
+docker compose up -d --no-deps svc # restart one service without touching others
+docker compose restart svc         # restart a service
+docker compose scale svc=3         # run 3 instances
+docker compose stop                # stop without removing
+docker compose start               # start stopped services
+docker compose down                # stop and remove containers
+docker compose down -v             # stop and remove including volumes
+docker compose down --rmi all      # stop and remove including images
 ```
 
 ### Cleanup
