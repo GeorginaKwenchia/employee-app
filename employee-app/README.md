@@ -67,8 +67,8 @@ ssh -i <YOUR_KEY.pem> ec2-user@<EC2_PUBLIC_IP>
 sudo dnf update -y
 sudo dnf install -y git java-17-amazon-corretto-headless maven python3 python3-pip nginx
 
-# Node.js 18
-curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -
+# Node.js 22
+curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo bash -
 sudo dnf install -y nodejs
 
 # PostgreSQL 15
@@ -77,9 +77,12 @@ sudo postgresql-setup --initdb
 sudo systemctl enable --now postgresql
 sudo sed -i 's/ident/md5/g' /var/lib/pgsql/data/pg_hba.conf
 sudo systemctl restart postgresql
-sudo -u postgres psql -c "CREATE USER postgres WITH PASSWORD 'postgres';"
+sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'postgres';"
 sudo -u postgres psql -c "CREATE DATABASE employees OWNER postgres;"
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE employees TO postgres;"
+
+# Allow Nginx to read frontend files
+chmod o+x /home/ec2-user
 ```
 
 ### Clone and Run
@@ -87,36 +90,33 @@ sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE employees TO postgres
 ```bash
 git clone https://github.com/LandmakTechnology/employee-app.git
 cd employee-app/employee-app
+chmod +x scripts/*.sh
 ```
 
-**Python:**
+Run one backend at a time — each script builds, tests, starts the app, and prints the URL:
+
 ```bash
-cd backend && pip3 install -r requirements.txt
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/employees python3 app.py
+bash scripts/run-python.sh   # Python
+bash scripts/run-node.sh     # Node.js
+bash scripts/run-java.sh     # Java
 ```
 
-**Node.js:**
-```bash
-cd backend-node && npm install
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/employees npm start
-```
+Clean up between practicals:
 
-**Java:**
 ```bash
-cd backend-java && mvn package -DskipTests
-DATABASE_URL=jdbc:postgresql://localhost:5432/employees DB_USER=postgres DB_PASS=postgres java -jar target/employee-backend-1.0.0.jar
+kill <PID>   # PID printed by the script
+sudo rm -f /etc/nginx/conf.d/employee-app.conf
+sudo systemctl reload nginx
 ```
 
 ### Access
 
 | URL | Description |
 |-----|-------------|
+| `http://<EC2_PUBLIC_IP>` | Full stack via Nginx |
 | `http://<EC2_PUBLIC_IP>:5000/api/health` | Health check |
-| `http://<EC2_PUBLIC_IP>:5000/api/employees` | Employee list |
-| `http://<EC2_PUBLIC_IP>:8080` | Frontend (Python HTTP server) |
-| `http://<EC2_PUBLIC_IP>` | Full stack via Nginx (port 80) |
 
-> See `BUILD.md` for the full step-by-step EC2 guide including Nginx reverse proxy setup.
+> See `BUILD.md` for the full step-by-step EC2 guide.
 
 ---
 
