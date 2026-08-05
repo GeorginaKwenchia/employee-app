@@ -75,7 +75,15 @@ PrometheusMetrics(app)
 
 # Create tables on startup
 with app.app_context():
-    db.create_all()
+    try:
+        db.create_all()
+    except Exception:
+        # Clean up orphaned sequences/tables left by a previous partial run
+        db.session.rollback()
+        db.session.execute(db.text("DROP TABLE IF EXISTS employees CASCADE"))
+        db.session.execute(db.text("DROP SEQUENCE IF EXISTS employees_id_seq CASCADE"))
+        db.session.commit()
+        db.create_all()
     logger.info("Database tables initialized")
 
 
