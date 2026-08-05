@@ -453,6 +453,109 @@ docker run -d \
   employee-frontend:v1
 ```
 
+### Run the full stack manually
+
+The backend needs a database to connect to. Start all three containers on the same network so they can reach each other by name.
+
+**Step 1 — Create a network:**
+
+```bash
+docker network create employee-network
+```
+
+**Step 2 — Start PostgreSQL:**
+
+```bash
+docker run -d \
+  --name db \
+  --network employee-network \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=employees \
+  -p 5432:5432 \
+  postgres:15
+```
+
+Verify Postgres is ready:
+
+```bash
+docker exec db pg_isready -U postgres
+# /var/run/postgresql:5432 - accepting connections
+```
+
+**Step 3 — Start the backend:**
+
+```bash
+docker run -d \
+  --name backend \
+  --network employee-network \
+  -p 5000:5000 \
+  -e DATABASE_URL=postgresql://postgres:postgres@db:5432/employees \
+  employee-backend:v1
+```
+
+Verify the backend is up:
+
+```bash
+curl http://localhost:5000/api/health
+# {"status": "healthy", "db": "connected"}
+```
+
+**Step 4 — Start the frontend:**
+
+```bash
+docker run -d \
+  --name frontend \
+  --network employee-network \
+  -p 8080:80 \
+  employee-frontend:v1
+```
+
+**Step 5 — Open in your browser:**
+
+```
+http://localhost:8080
+```
+
+You will see the Employee Directory UI. Add employees using the form — the frontend calls the backend API which stores records in PostgreSQL.
+
+**Verify all three containers are running:**
+
+```bash
+docker ps
+```
+
+You should see `db`, `backend`, and `frontend` all with status `Up`.
+
+**Watch the backend logs as you use the app:**
+
+```bash
+docker logs -f backend
+```
+
+Every request you make in the browser appears here in real time.
+
+**Connect to the database directly:**
+
+```bash
+docker exec -it db psql -U postgres -d employees
+```
+
+```sql
+-- List all employees
+SELECT * FROM employees;
+
+-- Exit
+\q
+```
+
+**Clean up:**
+
+```bash
+docker rm -f frontend backend db
+docker network rm employee-network
+```
+
 ---
 
 ## Docker Networking
