@@ -120,7 +120,90 @@ sudo systemctl reload nginx
 
 ---
 
-## Option B — Run Locally with Docker Compose
+## Option B — Run with Docker (manual containers)
+
+Build the images first:
+
+```bash
+cd employee-app
+docker build -t employee-backend:v1 ./backend
+docker build -t employee-frontend:v1 ./frontend
+```
+
+Then start the stack in order:
+
+```bash
+# 1. Create a shared network
+docker network create employee-network
+
+# 2. Start PostgreSQL
+docker run -d \
+  --name db \
+  --network employee-network \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=employees \
+  -p 5432:5432 \
+  postgres:15
+
+# 3. Wait for Postgres to be ready before starting the backend
+until docker exec db pg_isready -U postgres; do
+  echo "Waiting for database..."
+  sleep 2
+done
+
+# 4. Start the backend
+docker run -d \
+  --name backend \
+  --network employee-network \
+  -p 5000:5000 \
+  -e DATABASE_URL=postgresql://postgres:postgres@db:5432/employees \
+  employee-backend:v1
+
+# 5. Start the frontend
+docker run -d \
+  --name frontend \
+  --network employee-network \
+  -p 8080:80 \
+  employee-frontend:v1
+```
+
+### Access
+
+| URL | Description |
+|-----|-------------|
+| `http://localhost:8080` | Full web interface |
+| `http://localhost:5000/api/health` | Backend health check |
+
+If running on EC2, replace `localhost` with the public IP and ensure ports `8080` and `5000` are open in the security group:
+
+```
+http://<EC2_PUBLIC_IP>:8080
+```
+
+Or use SSH port forwarding to access without opening ports (run on your local machine):
+
+```bash
+ssh -i your-key.pem \
+  -L 8080:localhost:8080 \
+  -L 5000:localhost:5000 \
+  ec2-user@<EC2_PUBLIC_IP>
+```
+
+Then open `http://localhost:8080` in your browser.
+
+### Clean up
+
+```bash
+docker rm -f frontend backend db
+docker network rm employee-network
+```
+
+---
+
+## Option C — Run with Docker Compose
+
+Docker Compose starts all three services (Postgres, backend, frontend) in the correct order automatically:
 
 ```bash
 cd employee-app
@@ -132,9 +215,18 @@ docker compose up --build
 | Frontend | `http://localhost:8080` |
 | Backend | `http://localhost:5000` |
 
+Stop:
+
+```bash
+docker compose down       # stop
+docker compose down -v    # stop and wipe database
+```
+
+> See `DOCKER.md` for the full Docker guide including networking, volumes, and image registries.
+
 ---
 
-## Option C — Deploy to EKS (Production)
+## Option D — Deploy to EKS (Production)
 
 ### 1. Deploy Infrastructure
 ```bash
