@@ -305,7 +305,9 @@ docker logs my-nginx
 docker logs -f my-nginx
 
 # Open a shell inside a running container
-docker exec -it my-nginx sh
+# backend (Debian) uses bash, frontend (Alpine) uses sh
+docker exec -it backend bash
+docker exec -it frontend sh
 
 # Run a one-off command inside a container
 docker exec my-nginx ls /usr/share/nginx/html
@@ -371,6 +373,10 @@ employee-app/backend/Dockerfile
 ```dockerfile
 FROM python:3.11-slim
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    iputils-ping curl netcat-openbsd dnsutils \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY requirements.txt .
@@ -388,6 +394,7 @@ Line by line:
 | Line | What it does |
 |------|-------------|
 | `FROM python:3.11-slim` | Start from an official Python 3.11 image (slim = smaller size) |
+| `RUN apt-get install ...` | Install `ping`, `curl`, `nc`, `dig` for network debugging inside the container |
 | `WORKDIR /app` | All subsequent commands run from `/app` inside the container |
 | `COPY requirements.txt .` | Copy the dependency file first (for layer caching) |
 | `RUN pip install ...` | Install all Python dependencies inside the image |
@@ -404,6 +411,8 @@ employee-app/frontend/Dockerfile
 ```dockerfile
 FROM nginx:alpine
 
+RUN apk add --no-cache iputils curl bind-tools
+
 COPY index.html /usr/share/nginx/html/index.html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
@@ -415,6 +424,7 @@ Line by line:
 | Line | What it does |
 |------|-------------|
 | `FROM nginx:alpine` | Start from official Nginx image (alpine = very small) |
+| `RUN apk add ...` | Install `ping`, `curl`, `dig` for network debugging inside the container |
 | `COPY index.html ...` | Copy the HTML file into the Nginx web root |
 | `COPY nginx.conf ...` | Replace the default Nginx config with ours |
 | `EXPOSE 80` | Document that Nginx listens on port 80 |
@@ -661,19 +671,35 @@ Once containers are on the same network, verify they can actually reach each oth
 
 ```bash
 # Ping db from inside the backend container (by name)
-docker exec backend ping -c 3 db
+# backend is Debian-based — use bash
+docker exec -it backend bash
+ping -c 3 db
+exit
 
 # Ping backend from inside the frontend container
+# frontend is Alpine-based — use sh
+docker exec -it frontend sh
+ping -c 3 backend
+exit
+
+# One-liner versions (no interactive shell needed)
+docker exec backend ping -c 3 db
 docker exec frontend ping -c 3 backend
 
 # curl the backend health endpoint from inside the frontend container
 docker exec frontend curl -s http://backend:5000/api/health
 
-# Open a shell inside backend and test the DB connection manually
-docker exec -it backend sh
-  # inside the container:
-  python -c "import psycopg2; psycopg2.connect('postgresql://postgres:postgres@db:5432/employees'); print('connected')"
-  exit
+# DNS lookup — verify container name resolves correctly
+docker exec backend nslookup db
+docker exec frontend nslookup backend
+
+# Test raw TCP port reachability (nc = netcat)
+docker exec backend nc -zv db 5432
+
+# Test DB connection from inside the backend container
+docker exec -it backend bash
+python -c "import psycopg2; psycopg2.connect('postgresql://postgres:postgres@db:5432/employees'); print('connected')"
+exit
 ```
 
 ### Inspecting the network
