@@ -328,6 +328,65 @@ docker system prune -a
 
 ---
 
+## Container Restart Policies
+
+By default, if a container crashes or the server reboots, the container stays stopped. A **restart policy** tells Docker when to automatically restart a container.
+
+### Restart policy options
+
+| Policy | Behaviour |
+|--------|-----------|
+| `no` | Never restart (default) |
+| `always` | Always restart — even if you manually stopped it |
+| `unless-stopped` | Restart on crash or reboot, but not if you manually stopped it |
+| `on-failure` | Only restart if the container exited with a non-zero error code |
+
+`unless-stopped` is the right choice for production containers on a server — they survive reboots and crashes, but `docker stop` still works as expected.
+
+### Add restart policy to a container
+
+```bash
+docker run -d \
+  --name backend \
+  --restart unless-stopped \
+  --network employee-network \
+  -p 5000:5000 \
+  -e DATABASE_URL=postgresql://postgres:postgres@db:5432/employees \
+  employee-backend:v1
+```
+
+### Update restart policy on an existing container
+
+If you already have containers running without a restart policy:
+
+```bash
+docker update --restart unless-stopped db
+docker update --restart unless-stopped backend
+docker update --restart unless-stopped frontend
+```
+
+### Verify the restart policy is set
+
+```bash
+docker inspect backend --format '{{.HostConfig.RestartPolicy.Name}}'
+# unless-stopped
+```
+
+### Test it works
+
+```bash
+# Check containers are running
+docker ps
+
+# Simulate a reboot by restarting the Docker daemon
+sudo systemctl restart docker
+
+# Wait a few seconds, then check — containers should be back up
+docker ps
+```
+
+---
+
 ## The Dockerfile
 
 A **Dockerfile** is a text file that contains step-by-step instructions for building a Docker image. Each instruction creates a new layer in the image.
@@ -478,6 +537,7 @@ docker network create employee-network
 ```bash
 docker run -d \
   --name db \
+  --restart unless-stopped \
   --network employee-network \
   -e POSTGRES_USER=postgres \
   -e POSTGRES_PASSWORD=postgres \
@@ -511,6 +571,7 @@ Do not proceed to the next step until you see `accepting connections`.
 ```bash
 docker run -d \
   --name backend \
+  --restart unless-stopped \
   --network employee-network \
   -p 5000:5000 \
   -e DATABASE_URL=postgresql://postgres:postgres@db:5432/employees \
@@ -529,6 +590,7 @@ curl http://localhost:5000/api/health
 ```bash
 docker run -d \
   --name frontend \
+  --restart unless-stopped \
   --network employee-network \
   -p 8080:80 \
   employee-frontend:v1
@@ -643,6 +705,7 @@ docker network inspect employee-network
 # Run containers on the same network
 docker run -d \
   --name db \
+  --restart unless-stopped \
   --network employee-network \
   -e POSTGRES_USER=postgres \
   -e POSTGRES_PASSWORD=postgres \
@@ -651,6 +714,7 @@ docker run -d \
 
 docker run -d \
   --name backend \
+  --restart unless-stopped \
   --network employee-network \
   -p 5000:5000 \
   -e DATABASE_URL=postgresql://postgres:postgres@db:5432/employees \
@@ -658,6 +722,7 @@ docker run -d \
 
 docker run -d \
   --name frontend \
+  --restart unless-stopped \
   --network employee-network \
   -p 8080:80 \
   employee-frontend:v1
@@ -762,6 +827,7 @@ docker volume inspect postgres-data
 # Run postgres with a volume so data persists
 docker run -d \
   --name db \
+  --restart unless-stopped \
   --network employee-network \
   -v postgres-data:/var/lib/postgresql/data \
   -e POSTGRES_USER=postgres \
@@ -1398,6 +1464,13 @@ docker volume prune                    # remove unused volumes
 docker run -v name:/path image         # mount named volume
 docker run -v $(pwd)/dir:/path image   # bind mount
 docker run --rm -v name:/data alpine ls /data  # inspect volume contents
+```
+
+### Restart Policy
+```bash
+docker run --restart unless-stopped ...        # set on run
+docker update --restart unless-stopped name    # update existing container
+docker inspect name --format '{{.HostConfig.RestartPolicy.Name}}'  # verify
 ```
 
 ### Docker Hub

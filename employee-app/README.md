@@ -139,6 +139,7 @@ docker network create employee-network
 # 2. Start PostgreSQL
 docker run -d \
   --name db \
+  --restart unless-stopped \
   --network employee-network \
   -e POSTGRES_USER=postgres \
   -e POSTGRES_PASSWORD=postgres \
@@ -155,6 +156,7 @@ done
 # 4. Start the backend
 docker run -d \
   --name backend \
+  --restart unless-stopped \
   --network employee-network \
   -p 5000:5000 \
   -e DATABASE_URL=postgresql://postgres:postgres@db:5432/employees \
@@ -163,6 +165,7 @@ docker run -d \
 # 5. Start the frontend
 docker run -d \
   --name frontend \
+  --restart unless-stopped \
   --network employee-network \
   -p 8080:80 \
   employee-frontend:v1
