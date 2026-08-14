@@ -1,6 +1,6 @@
-# Docker module — uses Node.js backend + Postgres container
-# Used when teaching Docker: build, containerisation, networking, volumes
-# For the Kubernetes module (Python + RDS), see docker-compose.python.yml
+# Kubernetes module prep — uses Python backend + Postgres container
+# Used to verify the Python backend works locally before deploying to EKS with RDS
+# In EKS, the Postgres container is replaced by RDS (provisioned by Terraform)
 
 version: "3.8"
 
@@ -23,10 +23,11 @@ services:
       retries: 5
 
   backend:
-    build: ./backend-node
+    build: ./backend
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/employees
+      ENVIRONMENT: dev
     ports:
       - "5000:5000"
     depends_on:

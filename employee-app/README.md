@@ -122,15 +122,29 @@ sudo systemctl reload nginx
 
 ## Option B — Run with Docker (manual containers)
 
-Build the images first:
+Two backends are available — use Node.js for the Docker module, Python for Kubernetes module prep:
+
+| Module | Backend image | Build from |
+|--------|--------------|------------|
+| Docker | `employee-backend-node:v1` | `./backend-node` |
+| Kubernetes prep | `employee-backend:v1` | `./backend` |
+
+Build the images:
 
 ```bash
 cd employee-app
+
+# Docker module — Node.js backend
+docker build -t employee-backend-node:v1 ./backend-node
+
+# Kubernetes module prep — Python backend
 docker build -t employee-backend:v1 ./backend
+
+# Frontend (shared by both)
 docker build -t employee-frontend:v1 ./frontend
 ```
 
-Then start the stack in order:
+Then start the stack in order (example uses Node.js — swap image name for Python):
 
 ```bash
 # 1. Create a shared network
@@ -153,14 +167,14 @@ until docker exec db pg_isready -U postgres; do
   sleep 2
 done
 
-# 4. Start the backend
+# 4. Start the backend (Node.js for Docker module)
 docker run -d \
   --name backend \
   --restart unless-stopped \
   --network employee-network \
   -p 5000:5000 \
   -e DATABASE_URL=postgresql://postgres:postgres@db:5432/employees \
-  employee-backend:v1
+  employee-backend-node:v1
 
 # 5. Start the frontend
 docker run -d \
@@ -206,11 +220,25 @@ docker network rm employee-network
 
 ## Option C — Run with Docker Compose
 
-Docker Compose starts all three services (Postgres, backend, frontend) in the correct order automatically:
+Two compose files exist — one per teaching module:
+
+| File | Backend | Database | Used when |
+|------|---------|----------|-----------|
+| `docker-compose.yml` | Node.js | Postgres container | Docker module |
+| `docker-compose.python.yml` | Python | Postgres container | Kubernetes module prep |
+
+### Docker module (Node.js)
 
 ```bash
 cd employee-app
 docker compose up --build
+```
+
+### Kubernetes module prep (Python)
+
+```bash
+cd employee-app
+docker compose -f docker-compose.python.yml up --build
 ```
 
 | Service | URL |
@@ -221,8 +249,9 @@ docker compose up --build
 Stop:
 
 ```bash
-docker compose down       # stop
-docker compose down -v    # stop and wipe database
+docker compose down          # stop Node.js stack
+docker compose -f docker-compose.python.yml down    # stop Python stack
+docker compose down -v       # stop and wipe database
 ```
 
 > See `DOCKER.md` for the full Docker guide including networking, volumes, and image registries.
