@@ -1,0 +1,120 @@
+version: 2.1
+
+orbs:
+  aws-cli: circleci/aws-cli@4.1
+  python: circleci/python@2.1
+
+# ── Reusable commands ──────────────────────────────────────────────────────────
+commands:
+  ecr-login:
+    steps:
+      - run:
+          name: Authenticate Docker to ECR
+          command: |
+            aws ecr get-login-password --region $AWS_REGION | \
+              docker login --username AWS --password-stdin $ECR_REGISTRY
+
+# ── Jobs ───────────────────────────────────────────────────────────────────────
+jobs:
+
+  # ── Job 1: Test ───────────────────────────────────────────────────────────────
+  test:
+    docker:
+      - image: cimg/python:3.11
+    steps:
+      - checkout
+      - python/install-packages:
+          pkg-manager: pip
+          pip-dependency-file: employee-app/backend/requirements.txt
+      - run:
+          name: Run pytest
+          command: |
+            cd employee-app/backend
+            DATABASE_URL=sqlite:///test.db \
+            AWS_REGION=us-east-1 \
+            pytest -v
+
+  # ── Job 2: Build & Push ───────────────────────────────────────────────────────
+  build-and-push:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - aws-cli/setup:
+          aws_access_key_id: AWS_ACCESS_KEY_ID
+          aws_secret_access_key: AWS_SECRET_ACCESS_KEY
+          region: AWS_REGION
+      - ecr-login
+      - run:
+          name: Set image tags
+          command: |
+            TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
+            echo "export BACKEND_TAG=be-dev-${TIMESTAMP}" >> $BASH_ENV
+            echo "export FRONTEND_TAG=fe-dev-${TIMESTAMP}" >> $BASH_ENV
+      - run:
+          name: Build and push backend
+          command: |
+            docker build -t $ECR_REGISTRY/employee-backend:$BACKEND_TAG employee-app/backend/
+            docker push $ECR_REGISTRY/employee-backend:$BACKEND_TAG
+      - run:
+          name: Build and push frontend
+          command: |
+            docker build -t $ECR_REGISTRY/employee-frontend:$FRONTEND_TAG employee-app/frontend/
+            docker push $ECR_REGISTRY/employee-frontend:$FRONTEND_TAG
+      - run:
+          name: Save tags for next job
+          command: |
+            echo $BACKEND_TAG > /tmp/backend_tag
+            echo $FRONTEND_TAG > /tmp/frontend_tag
+      - persist_to_workspace:
+          root: /tmp
+          paths:
+            - backend_tag
+            - frontend_tag
+
+  # ── Job 3: Update Helm values ─────────────────────────────────────────────────
+  update-image-tags:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /tmp
+      - run:
+          name: Load tags
+          command: |
+            echo "export BACKEND_TAG=$(cat /tmp/backend_tag)" >> $BASH_ENV
+            echo "export FRONTEND_TAG=$(cat /tmp/frontend_tag)" >> $BASH_ENV
+      - run:
+          name: Update kubernetes/helm/values.yaml
+          command: |
+            sed -i "0,/tag: .*/s/tag: .*/tag: ${BACKEND_TAG}/" kubernetes/helm/values.yaml
+            sed -i "0,/tag: ${BACKEND_TAG}/!s/tag: .*/tag: ${FRONTEND_TAG}/" kubernetes/helm/values.yaml
+      - run:
+          name: Commit and push updated tags
+          command: |
+            git config user.name "circleci"
+            git config user.email "circleci@landmark.dev"
+            git add kubernetes/helm/values.yaml
+            git commit -m "ci: update tags - backend:${BACKEND_TAG} frontend:${FRONTEND_TAG}" || true
+            git push https://${GITHUB_TOKEN}@github.com/LandmakTechnology/employee-app.git HEAD:main
+
+# ── Workflow ───────────────────────────────────────────────────────────────────
+workflows:
+  build-and-deploy:
+    jobs:
+      - test
+      - build-and-push:
+          requires:
+            - test
+          filters:
+            branches:
+              only: main
+      - update-image-tags:
+          requires:
+            - build-and-push
+          filters:
+            branches:
+              only: main

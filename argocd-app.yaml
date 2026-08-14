@@ -8,7 +8,7 @@ spec:
   source:
     repoURL: https://github.com/LandmakTechnology/employee-app.git
     targetRevision: main
-    path: helm
+    path: kubernetes/helm
     helm:
       valueFiles:
         - values.yaml
