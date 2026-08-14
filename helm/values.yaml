@@ -12,6 +12,16 @@ frontend:
   replicas: 2
   port: 80
 
+# In-cluster PostgreSQL
+# Set enabled: true for local Kubernetes (minikube/kind) — no RDS or Secrets Manager needed
+# Set enabled: false for EKS production — uses RDS via External Secrets Operator
+postgres:
+  enabled: false
+  user: postgres
+  password: postgres
+  database: employees
+  storage: 5Gi
+
 # Service Account for Secrets Manager access
 serviceAccount:
   name: app-sa
@@ -22,7 +32,9 @@ aws:
   region: "us-east-1"
 
 # External Secrets - AWS Secrets Manager
+# Only used when postgres.enabled is false (EKS + RDS)
 externalSecrets:
+  enabled: true
   secretName: "landmark-cluster-dev/employee-app"
   refreshInterval: "1m"
 
