@@ -28,7 +28,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r employee-app/backend/requirements.txt
+        run: pip install -r backend/requirements.txt
 
       - name: Run tests
         env:
@@ -36,7 +36,7 @@ jobs:
           S3_BUCKET: test-bucket
           AWS_REGION: us-east-1
         run: |
-          cd employee-app/backend
+          cd backend
           pytest -v
 
   build-and-push:
@@ -69,12 +69,12 @@ jobs:
 
       - name: Build and push backend
         run: |
-          docker build -t ${{ vars.ECR_REGISTRY }}/employee-backend:${{ steps.tag.outputs.backend_tag }} employee-app/backend/
+          docker build -t ${{ vars.ECR_REGISTRY }}/employee-backend:${{ steps.tag.outputs.backend_tag }} backend/
           docker push ${{ vars.ECR_REGISTRY }}/employee-backend:${{ steps.tag.outputs.backend_tag }}
 
       - name: Build and push frontend
         run: |
-          docker build -t ${{ vars.ECR_REGISTRY }}/employee-frontend:${{ steps.tag.outputs.frontend_tag }} employee-app/frontend/
+          docker build -t ${{ vars.ECR_REGISTRY }}/employee-frontend:${{ steps.tag.outputs.frontend_tag }} frontend/
           docker push ${{ vars.ECR_REGISTRY }}/employee-frontend:${{ steps.tag.outputs.frontend_tag }}
 
   update-image-tags:

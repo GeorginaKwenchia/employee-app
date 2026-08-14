@@ -25,11 +25,11 @@ jobs:
       - checkout
       - python/install-packages:
           pkg-manager: pip
-          pip-dependency-file: employee-app/backend/requirements.txt
+          pip-dependency-file: backend/requirements.txt
       - run:
           name: Run pytest
           command: |
-            cd employee-app/backend
+            cd backend
             DATABASE_URL=sqlite:///test.db \
             AWS_REGION=us-east-1 \
             pytest -v
@@ -56,12 +56,12 @@ jobs:
       - run:
           name: Build and push backend
           command: |
-            docker build -t $ECR_REGISTRY/employee-backend:$BACKEND_TAG employee-app/backend/
+            docker build -t $ECR_REGISTRY/employee-backend:$BACKEND_TAG backend/
             docker push $ECR_REGISTRY/employee-backend:$BACKEND_TAG
       - run:
           name: Build and push frontend
           command: |
-            docker build -t $ECR_REGISTRY/employee-frontend:$FRONTEND_TAG employee-app/frontend/
+            docker build -t $ECR_REGISTRY/employee-frontend:$FRONTEND_TAG frontend/
             docker push $ECR_REGISTRY/employee-frontend:$FRONTEND_TAG
       - run:
           name: Save tags for next job

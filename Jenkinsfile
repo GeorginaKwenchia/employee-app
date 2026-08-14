@@ -16,9 +16,9 @@ pipeline {
         // ── Stage 1: Test ─────────────────────────────────────────────────
         stage('Test') {
             steps {
-                sh '''
-                    pip install -r employee-app/backend/requirements.txt
-                    cd employee-app/backend
+                    sh '''
+                    pip install -r backend/requirements.txt
+                    cd backend
                     DATABASE_URL=sqlite:///test.db \
                     AWS_REGION=us-east-1 \
                     pytest -v
@@ -37,10 +37,10 @@ pipeline {
                         aws ecr get-login-password --region $AWS_REGION | \
                             docker login --username AWS --password-stdin $ECR_REGISTRY
 
-                        docker build -t $BACKEND_REPO:$BACKEND_TAG employee-app/backend/
+                        docker build -t $BACKEND_REPO:$BACKEND_TAG backend/
                         docker push $BACKEND_REPO:$BACKEND_TAG
 
-                        docker build -t $FRONTEND_REPO:$FRONTEND_TAG employee-app/frontend/
+                        docker build -t $FRONTEND_REPO:$FRONTEND_TAG frontend/
                         docker push $FRONTEND_REPO:$FRONTEND_TAG
                     '''
                 }
