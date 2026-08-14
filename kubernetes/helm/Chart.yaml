@@ -1,0 +1,5 @@
+apiVersion: v2
+name: employee-app
+description: Employee Directory application with Flask backend and Nginx frontend
+version: 1.0.0
+appVersion: "1.0.0"

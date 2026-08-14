@@ -1,0 +1,27 @@
+# ServiceMonitor
+# Used when Prometheus is installed via kube-prometheus-stack (Prometheus Operator).
+# Tells Prometheus to scrape the backend /metrics endpoint automatically.
+# The Prometheus Operator watches for ServiceMonitor objects and updates
+# its scrape config without any manual changes.
+#
+# Apply:  kubectl apply -f 04-servicemonitor.yaml
+# Check:  kubectl get servicemonitor -n monitoring
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: employee-backend
+  namespace: monitoring
+  labels:
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - employee-app
+  selector:
+    matchLabels:
+      app: backend
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
