@@ -1,6 +1,7 @@
 # ArgoCD
 
-GitOps continuous delivery for the Employee Directory app and monitoring stack.
+GitOps continuous delivery for the Employee Directory app.
+A single ArgoCD Application manages everything — backend, frontend, monitoring (Prometheus + Grafana), and secrets.
 
 ## Install ArgoCD
 
@@ -20,33 +21,29 @@ kubectl port-forward svc/argocd-server -n argocd 8080:443
 # Open https://localhost:8080  (admin / <password above>)
 ```
 
-## Deploy the applications
+## Deploy
 
 ```bash
-# Deploy the employee app (syncs from kubernetes/helm)
 kubectl apply -f employee-app.yaml
-
-# Deploy the monitoring stack (Prometheus + Grafana)
-kubectl apply -f monitoring.yaml
 ```
+
+ArgoCD will:
+1. Pull `kubernetes/helm/` from the repo
+2. Run `helm dependency update` to fetch `kube-prometheus-stack`
+3. Deploy backend, frontend, Prometheus, Grafana, node-exporter, kube-state-metrics, ServiceMonitor, and custom dashboards — all in one release
 
 ## Check sync status
 
 ```bash
-# List all ArgoCD applications
 kubectl get applications -n argocd
-
-# Describe an application
 kubectl describe application employee-app -n argocd
-kubectl describe application monitoring -n argocd
 ```
 
 ## Files
 
 | File | What it deploys |
 |------|----------------|
-| `employee-app.yaml` | Employee app via `kubernetes/helm` — auto-syncs on every git push |
-| `monitoring.yaml` | kube-prometheus-stack (Prometheus + Grafana + node-exporter + kube-state-metrics) |
+| `employee-app.yaml` | Everything — app + monitoring via `kubernetes/helm/` |
 
 ## How it works
 
@@ -57,13 +54,19 @@ Git push to main
 ArgoCD detects change (polls every 3 minutes or via webhook)
       │
       ▼
-ArgoCD syncs kubernetes/helm → EKS cluster
+helm dependency update  →  fetches kube-prometheus-stack subchart
       │
       ▼
-New pods rolling out in employee-app namespace
+helm install/upgrade kubernetes/helm/  →  EKS cluster
+      │
+      ├── backend (2 replicas)
+      ├── frontend (2 replicas)
+      ├── Prometheus + Grafana (kube-prometheus-stack subchart)
+      ├── node-exporter (DaemonSet)
+      ├── kube-state-metrics
+      ├── ServiceMonitor (scrapes backend /metrics)
+      └── grafana-custom-dashboards ConfigMap (platform, application, cloudwatch)
 ```
 
-`automated.selfHeal: true` — if someone manually changes a resource in the cluster,
-ArgoCD reverts it back to match the Git state.
-
-`automated.prune: true` — if a resource is removed from Git, ArgoCD deletes it from the cluster.
+`automated.selfHeal: true` — manual cluster changes are reverted to match Git.
+`automated.prune: true` — resources removed from Git are deleted from the cluster.
