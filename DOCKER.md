@@ -1186,8 +1186,16 @@ docker compose version
 
 **If it's missing on Amazon Linux 2023:**
 
+The `docker-compose-plugin` package does not exist on AL2023. Install the binary directly into the system-wide plugin directory:
+
 ```bash
-sudo dnf install -y docker-compose-plugin
+sudo mkdir -p /usr/local/lib/docker/cli-plugins
+
+sudo curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
 docker compose version
 ```
 
