@@ -1161,38 +1161,111 @@ aws ecr delete-repository \
 
 ## Docker Compose
 
-Running multiple containers with individual `docker run` commands is tedious. You have to remember the right flags, the right order, the right network names.
+Running multiple containers with individual `docker run` commands is tedious. You have to remember the right flags, the right order, the right network names. If you have three containers, that's three commands — and if you forget `--network` on one of them, nothing works.
 
-**Docker Compose** lets you define your entire multi-container application in a single YAML file and manage it with one command.
+**Docker Compose** solves this by letting you define your entire multi-container application in a single YAML file and manage the whole stack with one command.
+
+```
+docker run db + docker run backend + docker run frontend
+         ↓
+docker compose up
+```
+
+---
+
+### Installing Docker Compose
+
+Docker Compose V2 ships as a plugin built into the Docker CLI — it's the `docker compose` command (no hyphen). If you installed Docker Engine on Amazon Linux 2023 using `dnf install docker`, the plugin is included.
+
+**Verify it's installed:**
+
+```bash
+docker compose version
+# Docker Compose version v2.x.x
+```
+
+**If it's missing on Amazon Linux 2023:**
+
+```bash
+sudo dnf install -y docker-compose-plugin
+docker compose version
+```
+
+**On Ubuntu/Debian:**
+
+```bash
+sudo apt-get install -y docker-compose-plugin
+```
+
+**On macOS / Windows:**
+
+Docker Desktop includes Compose V2 automatically. Nothing extra to install.
+
+> **V1 vs V2**: The old standalone binary was `docker-compose` (with a hyphen). V2 is `docker compose` (space, as a CLI plugin). V1 is deprecated. Always use V2.
+
+---
 
 ### docker-compose.yml structure
+
+A Compose file has four top-level keys:
 
 ```yaml
 version: "3.8"          # Compose file format version
 
-services:               # Each service is a container
+services:               # Each service = one container
   service-name:
-    image: ...          # Use an existing image
-    build: ./path       # Or build from a Dockerfile
+    image: ...          # Use a pre-built image
+    build: ./path       # Or build from a Dockerfile in this directory
+    restart: unless-stopped
     ports:
       - "host:container"
     environment:
       KEY: value
+    env_file:
+      - .env            # Load env vars from a file
     volumes:
-      - name:/path
+      - name:/path      # Named volume
+      - ./local:/path   # Bind mount
     depends_on:
-      - other-service
+      other-service:
+        condition: service_healthy   # Wait for healthcheck to pass
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     networks:
       - network-name
 
-volumes:                # Named volumes
+volumes:                # Declare named volumes
   volume-name:
 
-networks:               # Custom networks
+networks:               # Declare custom networks (optional — Compose creates one by default)
   network-name:
 ```
 
-### The Employee Directory docker-compose.yml
+**Key points:**
+- Compose automatically creates a network named `<project>_default` and connects all services to it — containers reach each other by service name
+- `depends_on` controls start order but does NOT wait for the app inside to be ready — use `condition: service_healthy` with a `healthcheck` for that
+- `restart: unless-stopped` on every service means containers survive server reboots
+- `build:` and `image:` are mutually exclusive per service — use `build` when you have a Dockerfile, `image` when pulling from a registry
+
+---
+
+### The two Compose files in this project
+
+This project has two Compose files for two different teaching modules:
+
+| File | Backend | Database | Used for |
+|------|---------|----------|---------|
+| `docker-compose.yml` | Node.js (`./backend-node`) | Postgres container | Docker module |
+| `docker-compose.python.yml` | Python (`./backend`) | Postgres container | Kubernetes module prep |
+
+The Python backend is what gets deployed to EKS with RDS. The Compose file lets you verify it works locally before going to Kubernetes.
+
+---
+
+### docker-compose.yml (Docker module — Node.js)
 
 ```yaml
 version: "3.8"
@@ -1200,6 +1273,63 @@ version: "3.8"
 services:
   db:
     image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: employees
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend-node
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/employees
+    ports:
+      - "5000:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres-data:
+```
+
+What each service does:
+
+| Service | What it is | Key config |
+|---------|-----------|------------|
+| `db` | PostgreSQL 15 | Named volume keeps data across restarts. Healthcheck gates the backend start. |
+| `backend` | Node.js API | Built from `./backend-node/Dockerfile`. Connects to `db` by service name. |
+| `frontend` | Nginx | Built from `./frontend/Dockerfile`. Proxies `/api/` to `backend:5000`. |
+
+---
+
+### docker-compose.python.yml (Kubernetes module prep — Python)
+
+```yaml
+version: "3.8"
+
+services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -1216,6 +1346,7 @@ services:
 
   backend:
     build: ./backend
+    restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/employees
       ENVIRONMENT: dev
@@ -1227,6 +1358,7 @@ services:
 
   frontend:
     build: ./frontend
+    restart: unless-stopped
     ports:
       - "8080:80"
     depends_on:
@@ -1236,80 +1368,181 @@ volumes:
   postgres-data:
 ```
 
-What this defines:
-- `db` — PostgreSQL container with a named volume so data persists
-- `backend` — built from `./backend/Dockerfile`, connects to `db` by name
-- `frontend` — built from `./frontend/Dockerfile`, proxies `/api/` to `backend:5000`
-- All three are on the same default Compose network automatically
+Identical structure to the Node.js file — only the backend `build` path changes (`./backend` instead of `./backend-node`) and `ENVIRONMENT: dev` is added for the Python app's logging config.
 
-### Docker Compose commands
+---
+
+### Running the stacks
 
 ```bash
-# Start all services (build images if needed)
+# Docker module — Node.js backend
 docker compose up --build
 
-# Start in detached mode (background)
+# Kubernetes module prep — Python backend
+docker compose -f docker-compose.python.yml up --build
+```
+
+Docker Compose will:
+1. Build images for `backend` and `frontend` from their Dockerfiles
+2. Pull `postgres:15` from Docker Hub
+3. Create a shared network (`employee-app_default`)
+4. Start `db` first and wait for its healthcheck to pass
+5. Start `backend`, then `frontend`
+
+Open `http://localhost:8080` — the full application is running.
+
+---
+
+### Environment variables and env files
+
+Hardcoding credentials in `docker-compose.yml` is fine for local development but not for production. Use an env file to keep secrets out of the Compose file:
+
+```bash
+# .env  (never commit this file)
+DATABASE_URL=postgresql://postgres:postgres@db:5432/employees
+POSTGRES_PASSWORD=postgres
+ENVIRONMENT=dev
+```
+
+Reference it in the Compose file:
+
+```yaml
+services:
+  backend:
+    build: ./backend-node
+    env_file:
+      - .env
+```
+
+Or reference individual variables:
+
+```yaml
+services:
+  db:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}   # read from .env or shell
+```
+
+Compose automatically loads a `.env` file in the same directory as the Compose file. Variables defined there are available as `${VAR}` substitutions throughout the YAML.
+
+```bash
+# Check what variables Compose sees
+docker compose config
+```
+
+---
+
+### Health checks
+
+A healthcheck tells Docker whether the service inside the container is actually ready — not just that the container started. Without it, `depends_on` only waits for the container process to start, not for the app to be ready to accept connections.
+
+```yaml
+db:
+  image: postgres:15
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U postgres"]  # command to run inside the container
+    interval: 5s    # how often to run the check
+    timeout: 5s     # how long to wait for a response
+    retries: 5      # how many failures before marking unhealthy
+    start_period: 10s  # grace period before checks start (optional)
+```
+
+The backend uses `condition: service_healthy` so it won't start until Postgres passes its healthcheck:
+
+```yaml
+backend:
+  depends_on:
+    db:
+      condition: service_healthy
+```
+
+Check health status:
+
+```bash
+docker compose ps          # STATUS column shows "healthy" or "starting"
+docker inspect employee-app-db-1 --format '{{.State.Health.Status}}'
+```
+
+---
+
+### Core Compose commands
+
+```bash
+# Start everything (build images first)
+docker compose up --build
+
+# Start in background
 docker compose up -d --build
+
+# Use a non-default Compose file
+docker compose -f docker-compose.python.yml up --build
+
+# List running services and their status
+docker compose ps
 
 # View logs for all services
 docker compose logs
 
-# Follow logs for a specific service
-docker compose logs -f backend
-
-# List running services
-docker compose ps
-
-# Stop all services
-docker compose down
-
-# Stop and remove volumes (wipes the database)
-docker compose down -v
-
-# Rebuild a specific service
-docker compose build backend
-
-# Restart a specific service
-docker compose restart backend
-
-# Open a shell in a running service
-docker compose exec backend sh
-
-# Run a one-off command in a service
-docker compose exec db psql -U postgres -d employees
-```
-
-### Practical — Run the Employee Directory with Docker Compose
-
-```bash
-cd employee-app
-docker compose up --build
-```
-
-Docker Compose will:
-1. Build the `backend` image from `./backend/Dockerfile`
-2. Build the `frontend` image from `./frontend/Dockerfile`
-3. Pull the `postgres:15` image from Docker Hub
-4. Create a shared network for all three services
-5. Start `db` first (waits for healthcheck), then `backend`, then `frontend`
-
-Open `http://localhost:8080` — the full application is running.
-
-### Managing a running Compose stack
-
-```bash
-# See all running services and their status
-docker compose ps
-
-# Follow logs for all services at once
+# Follow logs in real time
 docker compose logs -f
 
-# Follow logs for one service only
+# Follow logs for one service
 docker compose logs -f backend
 
-# See the last 50 lines from a service
+# Last 50 lines from a service
 docker compose logs --tail=50 backend
+
+# Stop all services (containers removed, volumes and images kept)
+docker compose down
+
+# Stop and wipe the database volume
+docker compose down -v
+
+# Stop and remove images too
+docker compose down --rmi all
+
+# Stop without removing containers
+docker compose stop
+
+# Start previously stopped containers (no rebuild)
+docker compose start
+
+# Restart a single service
+docker compose restart backend
+
+# Rebuild a single service image
+docker compose build backend
+
+# Rebuild and restart one service without touching others
+docker compose up -d --no-deps --build backend
+
+# Pull latest base images
+docker compose pull
+
+# Print the resolved Compose config (with env var substitutions applied)
+docker compose config
 ```
+
+---
+
+### Interacting with running services
+
+```bash
+# Open a shell inside a service
+docker compose exec backend bash    # Node.js backend (Debian)
+docker compose exec frontend sh     # frontend (Alpine)
+
+# Connect to the database
+docker compose exec db psql -U postgres -d employees
+
+# Run a one-off command without entering the container
+docker compose exec db psql -U postgres -d employees -c "SELECT * FROM employees;"
+
+# Test backend can reach db by name
+docker compose exec backend bash -c "node -e \"require('pg').Pool({connectionString:'postgresql://postgres:postgres@db:5432/employees'}).query('SELECT 1').then(()=>console.log('DB reachable'))\""
+```
+
+---
 
 ### Testing the API
 
@@ -1331,36 +1564,7 @@ curl -X POST http://localhost:5000/api/employees \
 curl http://localhost:5000/api/stats
 ```
 
-### Interacting with running services
-
-```bash
-# Open a shell inside the backend container
-docker compose exec backend sh
-
-# Connect to the database directly
-docker compose exec db psql -U postgres -d employees
-
-# Run a one-off command without entering the container
-docker compose exec db psql -U postgres -d employees -c "SELECT * FROM employees;"
-
-# Test that backend can reach db by name (from inside the backend container)
-docker compose exec backend sh -c "python -c \"import psycopg2; psycopg2.connect('postgresql://postgres:postgres@db:5432/employees'); print('DB reachable')\""
-```
-
-### Rebuilding and restarting
-
-```bash
-# Rebuild a single service after a code change (without restarting others)
-docker compose build backend
-docker compose up -d --no-deps backend
-
-# Restart a single service
-docker compose restart backend
-
-# Pull latest base images and rebuild everything
-docker compose pull
-docker compose up --build -d
-```
+---
 
 ### Scaling a service
 
@@ -1372,23 +1576,57 @@ docker compose up -d --scale backend=3
 docker compose ps
 ```
 
-### Stopping and cleanup
+Note: scaling only makes sense if you have a load balancer in front. With the current setup, the frontend proxies to `backend:5000` — Docker's internal DNS will round-robin across the 3 instances automatically.
+
+---
+
+### Networking in Compose
+
+Compose automatically creates a network named `<project-directory>_default` and connects every service to it. Services reach each other by their service name — no manual `docker network create` needed.
 
 ```bash
-# Stop all services (containers removed, volumes and images kept)
-docker compose down
+# See the network Compose created
+docker network ls | grep employee
 
-# Stop and wipe the database volume
+# Inspect it — see all connected containers and their IPs
+docker network inspect employee-app_default
+
+# Test connectivity between services
+docker compose exec backend ping -c 3 db
+docker compose exec frontend curl -s http://backend:5000/api/health
+```
+
+If you need to connect a Compose service to an external container (one started with `docker run`), add it to the Compose network:
+
+```bash
+docker network connect employee-app_default some-external-container
+```
+
+---
+
+### Volumes in Compose
+
+Named volumes declared at the top level of the Compose file persist data across `docker compose down` and container restarts. They are only removed with `docker compose down -v`.
+
+```bash
+# List volumes created by Compose
+docker volume ls | grep employee
+
+# Inspect the postgres volume
+docker volume inspect employee-app_postgres-data
+
+# Wipe the database and start fresh
 docker compose down -v
+docker compose up -d --build
+```
 
-# Stop and remove images too
-docker compose down --rmi all
+Bind mounts are useful during development — changes to your local files are reflected inside the container immediately without a rebuild:
 
-# Stop without removing containers (pause)
-docker compose stop
-
-# Start previously stopped containers (no rebuild)
-docker compose start
+```yaml
+backend:
+  build: ./backend-node
+  volumes:
+    - ./backend-node:/app   # live code reload during development
 ```
 
 ---
@@ -1500,21 +1738,40 @@ aws ecr list-images --repository-name name --region us-east-1
 
 ### Docker Compose
 ```bash
-docker compose up --build          # build and start
-docker compose up -d --build       # start in background
-docker compose ps                  # list services
-docker compose logs -f             # follow all logs
-docker compose logs -f svc         # follow one service
-docker compose exec svc sh         # shell into service
-docker compose build svc           # rebuild one service
-docker compose up -d --no-deps svc # restart one service without touching others
-docker compose restart svc         # restart a service
-docker compose scale svc=3         # run 3 instances
-docker compose stop                # stop without removing
-docker compose start               # start stopped services
-docker compose down                # stop and remove containers
-docker compose down -v             # stop and remove including volumes
-docker compose down --rmi all      # stop and remove including images
+# Installation
+docker compose version                          # verify V2 is installed
+sudo dnf install -y docker-compose-plugin       # install on Amazon Linux 2023
+
+# Start / stop
+docker compose up --build                       # build and start
+docker compose up -d --build                    # start in background
+docker compose -f docker-compose.python.yml up --build  # use alternate file
+docker compose stop                             # stop without removing
+docker compose start                            # start stopped services
+docker compose down                             # stop and remove containers
+docker compose down -v                          # stop and remove including volumes
+docker compose down --rmi all                   # stop and remove including images
+
+# Inspect
+docker compose ps                               # list services and status
+docker compose logs -f                          # follow all logs
+docker compose logs -f svc                      # follow one service
+docker compose logs --tail=50 svc              # last 50 lines
+docker compose config                           # print resolved config
+
+# Interact
+docker compose exec svc bash                    # shell into service (Debian)
+docker compose exec svc sh                      # shell into service (Alpine)
+docker compose exec db psql -U postgres -d employees  # connect to DB
+
+# Rebuild / restart
+docker compose build svc                        # rebuild one service
+docker compose up -d --no-deps --build svc      # rebuild and restart one service
+docker compose restart svc                      # restart a service
+docker compose pull                             # pull latest base images
+
+# Scale
+docker compose up -d --scale svc=3             # run 3 instances
 ```
 
 ### Cleanup
