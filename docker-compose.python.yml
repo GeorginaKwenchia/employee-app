@@ -21,6 +21,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - employee-network
 
   backend:
     build: ./backend
@@ -33,6 +35,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - employee-network
 
   frontend:
     build: ./frontend
@@ -41,6 +45,12 @@ services:
       - "8080:80"
     depends_on:
       - backend
+    networks:
+      - employee-network
 
 volumes:
   postgres-data:
+
+networks:
+  employee-network:
+    driver: bridge
