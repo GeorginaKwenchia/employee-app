@@ -2,8 +2,6 @@
 # Used to verify the Python backend works locally before deploying to EKS with RDS
 # In EKS, the Postgres container is replaced by RDS (provisioned by Terraform)
 
-version: "3.8"
-
 services:
   db:
     image: postgres:15

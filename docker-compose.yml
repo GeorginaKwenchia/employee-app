@@ -2,8 +2,6 @@
 # Used when teaching Docker: build, containerisation, networking, volumes
 # For the Kubernetes module (Python + RDS), see docker-compose.python.yml
 
-version: "3.8"
-
 services:
   db:
     image: postgres:15
