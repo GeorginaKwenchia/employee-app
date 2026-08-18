@@ -51,8 +51,13 @@ jobs:
           name: Set image tags
           command: |
             TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
-            echo "export BACKEND_TAG=be-dev-${TIMESTAMP}" >> $BASH_ENV
-            echo "export FRONTEND_TAG=fe-dev-${TIMESTAMP}" >> $BASH_ENV
+            if [ "$CIRCLE_BRANCH" = "main" ]; then
+              echo "export BACKEND_TAG=be-prod-${TIMESTAMP}" >> $BASH_ENV
+              echo "export FRONTEND_TAG=fe-prod-${TIMESTAMP}" >> $BASH_ENV
+            else
+              echo "export BACKEND_TAG=be-dev-${TIMESTAMP}" >> $BASH_ENV
+              echo "export FRONTEND_TAG=fe-dev-${TIMESTAMP}" >> $BASH_ENV
+            fi
       - run:
           name: Build and push backend
           command: |
@@ -74,7 +79,68 @@ jobs:
             - backend_tag
             - frontend_tag
 
-  # ── Job 3: Update Helm values ─────────────────────────────────────────────────
+  # ── Job 3: Deploy to EC2 ──────────────────────────────────────────────────────
+  deploy:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /tmp
+      - run:
+          name: Load tags
+          command: |
+            echo "export BACKEND_TAG=$(cat /tmp/backend_tag)" >> $BASH_ENV
+            echo "export FRONTEND_TAG=$(cat /tmp/frontend_tag)" >> $BASH_ENV
+      - aws-cli/setup:
+          aws_access_key_id: AWS_ACCESS_KEY_ID
+          aws_secret_access_key: AWS_SECRET_ACCESS_KEY
+          region: AWS_REGION
+      - add_ssh_keys:
+          fingerprints:
+            - "$SSH_FINGERPRINT"
+      - run:
+          name: Deploy to EC2
+          command: |
+            ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_HOST << EOF
+              aws ecr get-login-password --region $AWS_REGION | \
+                docker login --username AWS --password-stdin $ECR_REGISTRY
+
+              docker network inspect employee-network >/dev/null 2>&1 || \
+                docker network create employee-network
+
+              if ! docker ps --format '{{.Names}}' | grep -q '^db$'; then
+                docker rm -f db || true
+                docker run -d --name db --restart unless-stopped \
+                  --network employee-network \
+                  -e POSTGRES_USER=postgres \
+                  -e POSTGRES_PASSWORD=postgres \
+                  -e POSTGRES_DB=employees \
+                  -v postgres-data:/var/lib/postgresql/data \
+                  postgres:15
+                until docker exec db pg_isready -U postgres; do sleep 2; done
+              fi
+
+              docker pull $ECR_REGISTRY/employee-backend:$BACKEND_TAG
+              docker pull $ECR_REGISTRY/employee-frontend:$FRONTEND_TAG
+
+              docker rm -f backend frontend || true
+
+              docker run -d --name backend --restart unless-stopped \
+                --network employee-network \
+                -p 5000:5000 \
+                -e DATABASE_URL=postgresql://postgres:postgres@db:5432/employees \
+                $ECR_REGISTRY/employee-backend:$BACKEND_TAG
+
+              docker run -d --name frontend --restart unless-stopped \
+                --network employee-network \
+                -p 8080:80 \
+                $ECR_REGISTRY/employee-frontend:$FRONTEND_TAG
+
+              docker image prune -f
+            EOF
+
+  # ── Job 4: Update Helm values ─────────────────────────────────────────────────
   update-image-tags:
     docker:
       - image: cimg/base:current
@@ -99,22 +165,36 @@ jobs:
             git config user.email "circleci@landmark.dev"
             git add kubernetes/helm/values.yaml
             git commit -m "ci: update tags - backend:${BACKEND_TAG} frontend:${FRONTEND_TAG}" || true
-            git push https://${GITHUB_TOKEN}@github.com/LandmakTechnology/employee-app.git HEAD:main
+            git push https://${GITHUB_TOKEN}@github.com/LandmakTechnology/employee-app.git HEAD:$CIRCLE_BRANCH
 
-# ── Workflow ───────────────────────────────────────────────────────────────────
+# ── Workflows ──────────────────────────────────────────────────────────────────
 workflows:
   build-and-deploy:
     jobs:
       - test
+
       - build-and-push:
           requires:
             - test
           filters:
             branches:
-              only: main
+              only:
+                - develop
+                - main
+
+      - deploy:
+          requires:
+            - build-and-push
+          filters:
+            branches:
+              only:
+                - develop
+                - main
+
       - update-image-tags:
           requires:
             - build-and-push
           filters:
             branches:
-              only: main
+              only:
+                - main
