@@ -5,6 +5,7 @@ on:
     workflows: ["Test"]
     branches: [main]
     types: [completed]
+  workflow_dispatch:
 
 jobs:
   build-and-push:
@@ -69,18 +70,39 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            # Authenticate with ECR
             aws ecr get-login-password --region ${{ vars.AWS_REGION }} | \
               docker login --username AWS --password-stdin ${{ vars.ECR_REGISTRY }}
 
+            # Create network if it does not exist
+            docker network inspect employee-network >/dev/null 2>&1 || \
+              docker network create employee-network
+
+            # Start postgres if not already running
+            if ! docker ps --format '{{.Names}}' | grep -q '^db$'; then
+              docker rm -f db || true
+              docker run -d --name db --restart unless-stopped \
+                --network employee-network \
+                -e POSTGRES_USER=postgres \
+                -e POSTGRES_PASSWORD=postgres \
+                -e POSTGRES_DB=employees \
+                -v postgres-data:/var/lib/postgresql/data \
+                postgres:15
+              # Wait for postgres to be ready
+              until docker exec db pg_isready -U postgres; do sleep 2; done
+            fi
+
+            # Pull latest images
             docker pull ${{ vars.ECR_REGISTRY }}/employee-backend:${{ needs.build-and-push.outputs.backend_tag }}
             docker pull ${{ vars.ECR_REGISTRY }}/employee-frontend:${{ needs.build-and-push.outputs.frontend_tag }}
 
+            # Replace old containers
             docker rm -f backend frontend || true
 
             docker run -d --name backend --restart unless-stopped \
               --network employee-network \
               -p 5000:5000 \
-              -e DATABASE_URL=${{ secrets.DATABASE_URL }} \
+              -e DATABASE_URL=postgresql://postgres:postgres@db:5432/employees \
               ${{ vars.ECR_REGISTRY }}/employee-backend:${{ needs.build-and-push.outputs.backend_tag }}
 
             docker run -d --name frontend --restart unless-stopped \
