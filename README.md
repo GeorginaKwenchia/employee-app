@@ -31,6 +31,7 @@ employee-app/
 |--------|---------|----------|-------|
 | Build (EC2) | Python / Node.js / Java | PostgreSQL on EC2 | `BUILD.md`, `scripts/` |
 | Docker | Node.js | Postgres container | `DOCKER.md`, `docker-compose.yml` |
+| CI/CD | Python | Postgres container | `CICD.md`, `.github/workflows/` |
 | Kubernetes | Python | RDS (Terraform) | `kubernetes/manifests/` |
 | Helm | Python | RDS (Terraform) | `kubernetes/helm/` |
 | ArgoCD | Python | RDS (Terraform) | `kubernetes/argocd/` |
@@ -181,7 +182,136 @@ docker compose down -v    # stop and wipe database
 
 ---
 
-## Option D — Deploy to EKS (Production)
+## Option E — CI/CD with GitHub Actions (EC2 Deploy)
+
+This is the CI/CD module. Three workflow files handle automated testing and deployment.
+
+### Branching Strategy
+
+```
+feature/* / fix/* / chore/*  ──▶  test only (no deploy)
+develop                       ──▶  test → build → push to ECR → deploy to DEV EC2
+main                          ──▶  test → build → push to ECR → deploy to PROD EC2 (approval required)
+```
+
+### Workflow Files
+
+| File | Trigger | What it does |
+|------|---------|-------------|
+| `.github/workflows/test.yml` | Push to any branch | Runs pytest only |
+| `.github/workflows/deploy-dev.yml` | `test.yml` passes on `develop` | Build → ECR → deploy to dev EC2 |
+| `.github/workflows/deploy-prod.yml` | `test.yml` passes on `main` | Build → ECR → deploy to prod EC2 |
+
+### GitHub Secrets and Variables Required
+
+**Repository secrets:**
+
+| Name | Value |
+|------|-------|
+| `AWS_ACCESS_KEY_ID` | IAM user access key |
+| `AWS_SECRET_ACCESS_KEY` | IAM user secret key |
+
+**Repository variables:**
+
+| Name | Value |
+|------|-------|
+| `AWS_REGION` | `us-east-1` |
+| `ECR_REGISTRY` | `075120018043.dkr.ecr.us-east-1.amazonaws.com` |
+
+**`development` environment secrets:**
+
+| Name | Value |
+|------|-------|
+| `EC2_HOST` | Dev EC2 public IP |
+| `EC2_USER` | `ec2-user` |
+| `EC2_SSH_KEY` | Private key (PEM contents) |
+
+**`production` environment secrets:**
+
+| Name | Value |
+|------|-------|
+| `EC2_HOST` | Prod EC2 public IP |
+| `EC2_USER` | `ec2-user` |
+| `EC2_SSH_KEY` | Private key (PEM contents) |
+
+### ECR Repositories
+
+Repositories already created in `us-east-1`:
+
+| Repository | URI |
+|------------|-----|
+| `employee-backend` | `075120018043.dkr.ecr.us-east-1.amazonaws.com/employee-backend` |
+| `employee-frontend` | `075120018043.dkr.ecr.us-east-1.amazonaws.com/employee-frontend` |
+
+### EC2 Prerequisites (run once per server)
+
+The pipeline deploys via SSH. The EC2 instance needs Docker, AWS CLI, and an IAM role with ECR pull permissions.
+
+**1. Attach IAM role to EC2:**
+```
+IAM → Roles → Create role → EC2 → AmazonEC2ContainerRegistryReadOnly
+EC2 → Instance → Actions → Security → Modify IAM role → attach role
+```
+
+**2. Install Docker and AWS CLI on the EC2 instance:**
+```bash
+sudo dnf install -y docker awscli
+sudo systemctl enable --now docker
+sudo usermod -aG docker ec2-user
+newgrp docker
+```
+
+**3. Add your SSH public key to the EC2 instance:**
+```bash
+# Generate a key pair for GitHub Actions
+ssh-keygen -t rsa -b 4096 -f github-actions-key -N ""
+
+# On the EC2 instance
+cat github-actions-key.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+Then add the private key contents to the GitHub environment secret `EC2_SSH_KEY`.
+
+### What the deploy script does on each run
+
+```
+1. Authenticate Docker with ECR (using EC2 IAM role)
+2. Create employee-network if it does not exist
+3. Start postgres:15 container if db is not already running
+4. Wait for postgres to be ready
+5. Pull new backend and frontend images from ECR
+6. Remove old backend and frontend containers
+7. Start new containers on employee-network
+8. Remove old images to free disk space
+```
+
+### Image Tagging
+
+| Branch | Tag format | Example |
+|--------|-----------|--------|
+| `develop` | `be-dev-YYYYMMDD-HHMMSS` | `be-dev-20260818-120000` |
+| `main` | `be-prod-YYYYMMDD-HHMMSS` | `be-prod-20260818-130000` |
+
+### Trigger a manual deploy
+
+```
+GitHub → Actions → Deploy to Production → Run workflow → Run workflow
+```
+
+### Set up production approval gate
+
+```
+GitHub → Settings → Environments → production → Required reviewers → add reviewer
+```
+
+The deploy job will pause and wait for approval before running on production.
+
+> See `CICD.md` for the full CI/CD lecture notes.
+
+---
+
+## Option F — Deploy to EKS (Production)
 
 ### 1. Deploy Infrastructure
 
@@ -240,10 +370,8 @@ Grafana login: `admin` / `admin123`
 
 ## CI/CD
 
-Three pipelines — all run the same stages: **test → build & push to ECR → update `kubernetes/helm/values.yaml`**
-
-| Pipeline | File |
-|----------|------|
-| GitHub Actions | `.github/workflows/deploy.yml` |
+| Pipeline | Files |
+|----------|-------|
+| GitHub Actions | `.github/workflows/test.yml`, `deploy-dev.yml`, `deploy-prod.yml` |
 | Jenkins | `Jenkinsfile` |
 | CircleCI | `.circleci/config.yml` |
