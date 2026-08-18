@@ -54,7 +54,7 @@ Both tools are widely used in industry. The concepts are identical — jobs, ste
 | **Step** | A single task — run a command or use an orb command |
 | **Executor** | The environment a job runs in — Docker image, machine, etc. |
 | **Orb** | A reusable package of jobs, commands, and executors (like GitHub Actions actions) |
-| **Context** | A named set of environment variables shared across projects |
+| **Context** | A named set of environment variables shared across projects in your org |
 | **Workspace** | Shared storage that passes files between jobs in the same workflow |
 | **`persist_to_workspace`** | Save files from one job to the workspace |
 | **`attach_workspace`** | Load files saved by a previous job |
@@ -95,7 +95,8 @@ jobs:                 # define what each job does
 workflows:            # define which jobs run and when
   my-workflow:
     jobs:
-      - my-job
+      - my-job:
+          context: my-context   # inject variables from a context
 ```
 
 ---
@@ -118,15 +119,16 @@ workflows:            # define which jobs run and when
 
 CircleCI will immediately trigger a pipeline on the current branch.
 
-### Step 3 — Add environment variables
+### Step 3 — Create a Context
 
-CircleCI needs AWS credentials and other config to run the pipeline. These are set as environment variables in the project settings.
+All credentials for this pipeline are stored in a CircleCI **Context** named `employee-app`. A context is a named set of environment variables that can be shared across all projects in your organisation — no per-project setup needed.
 
 ```
-CircleCI dashboard → Projects → employee-app → Project Settings → Environment Variables
+CircleCI → Organisation Settings → Contexts → Create Context
+Name: employee-app
 ```
 
-Add the following:
+Add the following variables to the context:
 
 | Variable | Value | Purpose |
 |----------|-------|---------|
@@ -134,26 +136,17 @@ Add the following:
 | `AWS_SECRET_ACCESS_KEY` | Your IAM secret key | Authenticate to AWS |
 | `AWS_REGION` | `us-east-1` | AWS region |
 | `ECR_REGISTRY` | `075120018043.dkr.ecr.us-east-1.amazonaws.com` | ECR registry URL |
-| `GITHUB_TOKEN` | GitHub personal access token | Push updated tags back to repo |
+| `EC2_HOST` | EC2 public IP | SSH deploy target |
+| `EC2_USER` | `ec2-user` | SSH username |
+| `SSH_FINGERPRINT` | SSH key fingerprint (added in Step 4) | Identify which SSH key to inject |
 
 > **Never** put these values directly in `config.yml` — that file is committed to the repo.
 
-### Step 4 — Create a GitHub personal access token
+### Step 4 — Add the SSH key to CircleCI
 
-The pipeline updates `kubernetes/helm/values.yaml` with new image tags and pushes the change back to GitHub. It needs a token with write access to do this.
+See the [SSH Setup section](#setting-up-ssh-for-ec2-deployment) below. Once added, copy the fingerprint and add it to the context as `SSH_FINGERPRINT`.
 
-```
-GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)
-→ Generate new token
-→ Scopes: check repo (full control of private repositories)
-→ Generate token → copy the value
-```
-
-Add it to CircleCI as `GITHUB_TOKEN`.
-
-### Step 5 — Give GitHub Actions access to AWS (IAM)
-
-Same IAM setup as GitHub Actions — create a dedicated IAM user for CI:
+### Step 5 — Create an IAM user for CircleCI
 
 ```
 AWS Console → IAM → Users → Create user
@@ -162,13 +155,11 @@ Attach policies:
   - AmazonEC2ContainerRegistryPowerUser
 ```
 
-Create access keys for this user and add them to CircleCI as `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
+Create access keys and add them to the context as `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
 
 ---
 
 ## Branching Strategy
-
-The CircleCI pipeline mirrors the GitHub Actions branching strategy exactly:
 
 ```
 feature/* / fix/* / chore/*  ──▶  test only (no build, no deploy)
@@ -176,31 +167,28 @@ develop                       ──▶  test → build → push to ECR → depl
 main                          ──▶  test → build → push to ECR → deploy to PROD EC2
 ```
 
-This is controlled in the `workflows` section using `filters`:
+Controlled in the `workflows` section using `filters`:
 
 ```yaml
 workflows:
   build-and-deploy:
     jobs:
-      - test                        # runs on ALL branches
+      - test:
+          context: employee-app       # runs on ALL branches
 
       - build-and-push:
-          requires:
-            - test                  # only after test passes
+          context: employee-app
+          requires: [test]
           filters:
             branches:
-              only:                 # only on these branches
-                - develop
-                - main
+              only: [develop, main]   # only on these two branches
 
       - deploy:
-          requires:
-            - build-and-push
+          context: employee-app
+          requires: [build-and-push]
           filters:
             branches:
-              only:
-                - develop
-                - main
+              only: [develop, main]
 ```
 
 | Branch | Jobs that run |
@@ -286,7 +274,7 @@ jobs:
             docker build -t $ECR_REGISTRY/employee-frontend:$FRONTEND_TAG frontend/
             docker push $ECR_REGISTRY/employee-frontend:$FRONTEND_TAG
       - run:
-          name: Save tags for next job
+          name: Save tags for deploy job
           command: |
             echo $BACKEND_TAG > /tmp/backend_tag
             echo $FRONTEND_TAG > /tmp/frontend_tag
@@ -296,12 +284,11 @@ jobs:
             - backend_tag
             - frontend_tag
 
-  # ── Job 3: Deploy ─────────────────────────────────────────────────────────────
+  # ── Job 3: Deploy to EC2 ──────────────────────────────────────────────────────
   deploy:
     docker:
       - image: cimg/base:current
     steps:
-      - checkout
       - attach_workspace:
           at: /tmp
       - run:
@@ -309,94 +296,64 @@ jobs:
           command: |
             echo "export BACKEND_TAG=$(cat /tmp/backend_tag)" >> $BASH_ENV
             echo "export FRONTEND_TAG=$(cat /tmp/frontend_tag)" >> $BASH_ENV
-      - aws-cli/setup:
-          aws_access_key_id: AWS_ACCESS_KEY_ID
-          aws_secret_access_key: AWS_SECRET_ACCESS_KEY
-          region: AWS_REGION
       - add_ssh_keys:
           fingerprints:
             - "$SSH_FINGERPRINT"
       - run:
           name: Deploy to EC2
           command: |
-            ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_HOST << EOF
-              # Authenticate with ECR
-              aws ecr get-login-password --region $AWS_REGION | \
-                docker login --username AWS --password-stdin $ECR_REGISTRY
+            ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_HOST \
+              BACKEND_TAG=$BACKEND_TAG \
+              FRONTEND_TAG=$FRONTEND_TAG \
+              ECR_REGISTRY=$ECR_REGISTRY \
+              AWS_REGION=$AWS_REGION \
+              'bash -s' << 'EOF'
+                aws ecr get-login-password --region $AWS_REGION | \
+                  docker login --username AWS --password-stdin $ECR_REGISTRY
 
-              # Create network if it does not exist
-              docker network inspect employee-network >/dev/null 2>&1 || \
-                docker network create employee-network
+                docker network inspect employee-network >/dev/null 2>&1 || \
+                  docker network create employee-network
 
-              # Start postgres if not already running
-              if ! docker ps --format '{{.Names}}' | grep -q '^db$'; then
-                docker rm -f db || true
-                docker run -d --name db --restart unless-stopped \
+                if ! docker ps --format '{{.Names}}' | grep -q '^db$'; then
+                  docker rm -f db || true
+                  docker run -d --name db --restart unless-stopped \
+                    --network employee-network \
+                    -e POSTGRES_USER=postgres \
+                    -e POSTGRES_PASSWORD=postgres \
+                    -e POSTGRES_DB=employees \
+                    -v postgres-data:/var/lib/postgresql/data \
+                    postgres:15
+                  until docker exec db pg_isready -U postgres; do sleep 2; done
+                fi
+
+                docker pull $ECR_REGISTRY/employee-backend:$BACKEND_TAG
+                docker pull $ECR_REGISTRY/employee-frontend:$FRONTEND_TAG
+
+                docker rm -f backend frontend || true
+
+                docker run -d --name backend --restart unless-stopped \
                   --network employee-network \
-                  -e POSTGRES_USER=postgres \
-                  -e POSTGRES_PASSWORD=postgres \
-                  -e POSTGRES_DB=employees \
-                  -v postgres-data:/var/lib/postgresql/data \
-                  postgres:15
-                until docker exec db pg_isready -U postgres; do sleep 2; done
-              fi
+                  -p 5000:5000 \
+                  -e DATABASE_URL=postgresql://postgres:postgres@db:5432/employees \
+                  $ECR_REGISTRY/employee-backend:$BACKEND_TAG
 
-              # Pull new images
-              docker pull $ECR_REGISTRY/employee-backend:$BACKEND_TAG
-              docker pull $ECR_REGISTRY/employee-frontend:$FRONTEND_TAG
+                docker run -d --name frontend --restart unless-stopped \
+                  --network employee-network \
+                  -p 8080:80 \
+                  $ECR_REGISTRY/employee-frontend:$FRONTEND_TAG
 
-              # Replace old containers
-              docker rm -f backend frontend || true
-
-              docker run -d --name backend --restart unless-stopped \
-                --network employee-network \
-                -p 5000:5000 \
-                -e DATABASE_URL=postgresql://postgres:postgres@db:5432/employees \
-                $ECR_REGISTRY/employee-backend:$BACKEND_TAG
-
-              docker run -d --name frontend --restart unless-stopped \
-                --network employee-network \
-                -p 8080:80 \
-                $ECR_REGISTRY/employee-frontend:$FRONTEND_TAG
-
-              # Clean up old images
-              docker image prune -f
+                docker image prune -f
             EOF
-
-  # ── Job 4: Update Helm values ─────────────────────────────────────────────────
-  update-image-tags:
-    docker:
-      - image: cimg/base:current
-    steps:
-      - checkout
-      - attach_workspace:
-          at: /tmp
-      - run:
-          name: Load tags
-          command: |
-            echo "export BACKEND_TAG=$(cat /tmp/backend_tag)" >> $BASH_ENV
-            echo "export FRONTEND_TAG=$(cat /tmp/frontend_tag)" >> $BASH_ENV
-      - run:
-          name: Update kubernetes/helm/values.yaml
-          command: |
-            sed -i "0,/tag: .*/s/tag: .*/tag: ${BACKEND_TAG}/" kubernetes/helm/values.yaml
-            sed -i "0,/tag: ${BACKEND_TAG}/!s/tag: .*/tag: ${FRONTEND_TAG}/" kubernetes/helm/values.yaml
-      - run:
-          name: Commit and push updated tags
-          command: |
-            git config user.name "circleci"
-            git config user.email "circleci@landmark.dev"
-            git add kubernetes/helm/values.yaml
-            git commit -m "ci: update tags - backend:${BACKEND_TAG} frontend:${FRONTEND_TAG}" || true
-            git push https://${GITHUB_TOKEN}@github.com/LandmakTechnology/employee-app.git HEAD:$CIRCLE_BRANCH
 
 # ── Workflows ──────────────────────────────────────────────────────────────────
 workflows:
   build-and-deploy:
     jobs:
-      - test
+      - test:
+          context: employee-app
 
       - build-and-push:
+          context: employee-app
           requires:
             - test
           filters:
@@ -406,20 +363,13 @@ workflows:
                 - main
 
       - deploy:
+          context: employee-app
           requires:
             - build-and-push
           filters:
             branches:
               only:
                 - develop
-                - main
-
-      - update-image-tags:
-          requires:
-            - build-and-push
-          filters:
-            branches:
-              only:
                 - main
 ```
 
@@ -441,12 +391,12 @@ orbs:
   python: circleci/python@2.1
 ```
 
-Orbs are reusable packages published to the CircleCI registry — equivalent to GitHub Actions' `uses:` actions. They wrap common tasks so you don't have to write them from scratch.
+Orbs are reusable packages published to the CircleCI registry — equivalent to GitHub Actions' `uses:` actions.
 
 | Orb | What it provides |
 |-----|-----------------|
-| `circleci/aws-cli` | `aws-cli/setup` command — installs and configures the AWS CLI using env vars |
-| `circleci/python` | `python/install-packages` command — installs pip dependencies with caching |
+| `circleci/aws-cli` | `aws-cli/setup` — installs and configures the AWS CLI using context variables |
+| `circleci/python` | `python/install-packages` — installs pip dependencies with caching |
 
 ---
 
@@ -463,103 +413,37 @@ commands:
               docker login --username AWS --password-stdin $ECR_REGISTRY
 ```
 
-A `command` is a reusable sequence of steps — like a function. Define it once, call it in any job. Here `ecr-login` wraps the ECR authentication so it can be reused without repeating the same code.
+A `command` is a reusable sequence of steps — like a function. Define it once, call it in any job.
 
 ---
 
 ### Job 1 — `test`
 
-```yaml
-test:
-  docker:
-    - image: cimg/python:3.11
-  steps:
-    - checkout
-    - python/install-packages:
-        pkg-manager: pip
-        pip-dependency-file: backend/requirements.txt
-    - run:
-        name: Run pytest
-        command: |
-          cd backend
-          DATABASE_URL=sqlite:///test.db pytest -v
-```
-
 - Runs on **every branch** — no filter
 - `cimg/python:3.11` — CircleCI's convenience image with Python 3.11 pre-installed
 - `checkout` — built-in step that clones the repo
-- `python/install-packages` — from the python orb, installs deps with pip caching
+- `python/install-packages` — installs deps with pip caching
 - `DATABASE_URL=sqlite:///test.db` — uses SQLite so no real database is needed in CI
 
 ---
 
 ### Job 2 — `build-and-push`
 
-```yaml
-build-and-push:
-  docker:
-    - image: cimg/base:current
-  steps:
-    - checkout
-    - setup_remote_docker:
-        docker_layer_caching: true
-    - aws-cli/setup: ...
-    - ecr-login
-    - run:
-        name: Set image tags
-        command: |
-          if [ "$CIRCLE_BRANCH" = "main" ]; then
-            echo "export BACKEND_TAG=be-prod-${TIMESTAMP}" >> $BASH_ENV
-          else
-            echo "export BACKEND_TAG=be-dev-${TIMESTAMP}" >> $BASH_ENV
-          fi
-```
-
 Key points:
 
 - `setup_remote_docker` — CircleCI jobs run inside Docker containers. To run Docker commands inside a job, you need a separate remote Docker environment. `docker_layer_caching: true` caches image layers between runs to speed up builds.
-- `$CIRCLE_BRANCH` — built-in CircleCI variable with the current branch name. Used to tag images differently for `develop` vs `main`.
+- `$CIRCLE_BRANCH` — built-in CircleCI variable with the current branch name. Used to tag images differently for `develop` (`be-dev-*`) vs `main` (`be-prod-*`).
 - `$BASH_ENV` — CircleCI's way of persisting environment variables between steps. Writing `export VAR=value >> $BASH_ENV` makes `VAR` available in all subsequent steps.
-- `persist_to_workspace` — saves the tag files to a shared workspace so the `deploy` and `update-image-tags` jobs can read them.
+- `persist_to_workspace` — saves the tag files so the `deploy` job can read them.
 
 ---
 
 ### Job 3 — `deploy`
 
-```yaml
-deploy:
-  steps:
-    - attach_workspace:
-        at: /tmp
-    - add_ssh_keys:
-        fingerprints:
-          - "$SSH_FINGERPRINT"
-    - run:
-        name: Deploy to EC2
-        command: |
-          ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_HOST << EOF
-            ...docker commands...
-          EOF
-```
-
 - `attach_workspace` — loads the tag files saved by `build-and-push`
-- `add_ssh_keys` — injects the SSH private key stored in CircleCI into the job so it can SSH into EC2
-- The heredoc (`<< EOF`) runs multiple commands on the remote EC2 server in a single SSH session
-
----
-
-### Job 4 — `update-image-tags`
-
-Only runs on `main`. Updates `kubernetes/helm/values.yaml` with the new image tags and pushes the commit back to GitHub. This is what triggers ArgoCD to deploy the new version to EKS.
-
-```yaml
-- run:
-    name: Commit and push updated tags
-    command: |
-      git push https://${GITHUB_TOKEN}@github.com/LandmakTechnology/employee-app.git HEAD:$CIRCLE_BRANCH
-```
-
-`$CIRCLE_BRANCH` ensures the push goes back to the branch that triggered the pipeline — `main` in this case.
+- `add_ssh_keys` — injects the SSH private key stored in CircleCI into the job using the fingerprint from the context
+- Variables are passed explicitly to the remote shell via `ssh ... VAR=value 'bash -s'` so they are available inside the heredoc on the EC2 instance
+- The deploy script: authenticates with ECR, creates the network if missing, starts postgres if not running, pulls new images, replaces old containers, prunes old images
 
 ---
 
@@ -569,34 +453,29 @@ Only runs on `main`. Updates `kubernetes/helm/values.yaml` with the new image ta
 workflows:
   build-and-deploy:
     jobs:
-      - test                          # every branch
+      - test:
+          context: employee-app       # every branch
 
       - build-and-push:
+          context: employee-app
           requires: [test]            # only after test passes
-          filters:
-            branches:
-              only: [develop, main]   # only on these two branches
-
-      - deploy:
-          requires: [build-and-push]
           filters:
             branches:
               only: [develop, main]
 
-      - update-image-tags:
+      - deploy:
+          context: employee-app
           requires: [build-and-push]
           filters:
             branches:
-              only: [main]            # only on main (EKS deploy)
+              only: [develop, main]
 ```
 
-The `requires` field creates a dependency chain — a job won't start until all its required jobs have passed. Combined with `filters`, this gives you full control over what runs where.
+`context: employee-app` on every job injects all variables from the context. The `requires` field creates a dependency chain — a job won't start until all required jobs pass. Combined with `filters`, this gives full control over what runs where.
 
 ---
 
 ## Setting Up SSH for EC2 Deployment
-
-CircleCI deploys to EC2 via SSH. You need to add your SSH key to CircleCI and the EC2 instance.
 
 ### Step 1 — Generate an SSH key pair
 
@@ -616,46 +495,22 @@ chmod 600 ~/.ssh/authorized_keys
 ### Step 3 — Add the private key to CircleCI
 
 ```
-CircleCI dashboard → Projects → employee-app → Project Settings
+CircleCI → Projects → employee-app → Project Settings
 → SSH Keys → Additional SSH Keys → Add SSH Key
 → Hostname: <your EC2 IP>
-→ Private Key: paste the contents of circleci-deploy-key
+→ Private Key: paste the full contents of circleci-deploy-key
 → Add SSH Key
 ```
 
-CircleCI will show you the **fingerprint** of the key. Copy it.
+CircleCI shows you the **fingerprint** of the key after saving. Copy it.
 
-### Step 4 — Add environment variables for the deploy job
+### Step 4 — Add the fingerprint to the context
 
 ```
-CircleCI → Project Settings → Environment Variables
+CircleCI → Organisation Settings → Contexts → employee-app
+→ Add Environment Variable
+→ SSH_FINGERPRINT = <fingerprint from Step 3>
 ```
-
-| Variable | Value |
-|----------|-------|
-| `EC2_HOST` | Your EC2 public IP |
-| `EC2_USER` | `ec2-user` |
-| `SSH_FINGERPRINT` | The fingerprint from Step 3 |
-
----
-
-## Environment Variables Reference
-
-All variables are set in:
-```
-CircleCI → Projects → employee-app → Project Settings → Environment Variables
-```
-
-| Variable | Value | Used in |
-|----------|-------|---------|
-| `AWS_ACCESS_KEY_ID` | IAM access key | `build-and-push`, `deploy` |
-| `AWS_SECRET_ACCESS_KEY` | IAM secret key | `build-and-push`, `deploy` |
-| `AWS_REGION` | `us-east-1` | All jobs |
-| `ECR_REGISTRY` | `075120018043.dkr.ecr.us-east-1.amazonaws.com` | `build-and-push`, `deploy` |
-| `GITHUB_TOKEN` | GitHub personal access token | `update-image-tags` |
-| `EC2_HOST` | EC2 public IP | `deploy` |
-| `EC2_USER` | `ec2-user` | `deploy` |
-| `SSH_FINGERPRINT` | SSH key fingerprint from CircleCI | `deploy` |
 
 ---
 
@@ -681,7 +536,7 @@ Developer pushes to feature/add-search
         │
         ▼
 CircleCI triggers pipeline
-  └── test job runs (pytest)
+  └── test (context: employee-app)
         ├── FAIL → red ✗, developer notified, pipeline stops
         └── PASS → green ✓
               └── build-and-push? NO — feature branch filtered out
@@ -692,16 +547,17 @@ Developer merges to develop
         ▼
 CircleCI triggers pipeline
   └── test → PASS
-        └── build-and-push (develop branch passes filter)
+        └── build-and-push (develop passes filter)
               ├── docker build backend → be-dev-20240101-120000
               ├── docker push to ECR
               ├── docker build frontend → fe-dev-20240101-120000
               ├── docker push to ECR
               └── persist tags to workspace
-        └── deploy (develop branch passes filter)
+        └── deploy (develop passes filter)
               ├── attach workspace (load tags)
+              ├── inject SSH key via fingerprint
               ├── SSH into DEV EC2
-              ├── docker pull new images
+              ├── docker pull new images from ECR
               ├── docker rm old containers
               └── docker run new containers
 
@@ -710,48 +566,33 @@ Team merges develop to main
         ▼
 CircleCI triggers pipeline
   └── test → PASS
-        └── build-and-push (main branch passes filter)
+        └── build-and-push (main passes filter)
               ├── docker build backend → be-prod-20240101-130000
               ├── docker push to ECR
-              ├── docker build frontend → fe-prod-20240101-130000
               └── persist tags to workspace
-        └── deploy (main branch passes filter)
+        └── deploy (main passes filter)
               ├── SSH into PROD EC2
               └── docker run new containers
-        └── update-image-tags (main only)
-              ├── update kubernetes/helm/values.yaml
-              └── git push → triggers ArgoCD → EKS deploy
 ```
 
 ---
 
 ## Switching Between Branches
 
-To test the pipeline on a feature branch:
-
 ```bash
-# Create and push a feature branch
+# Feature branch — only test runs
 git checkout -b feature/my-change
 git push origin feature/my-change
-# → only test job runs
-```
 
-To trigger a dev deploy:
-
-```bash
+# Trigger dev deploy
 git checkout develop
 git merge feature/my-change
 git push origin develop
-# → test → build-and-push → deploy to dev EC2
-```
 
-To trigger a prod deploy:
-
-```bash
+# Trigger prod deploy
 git checkout main
 git merge develop
 git push origin main
-# → test → build-and-push → deploy to prod EC2 → update helm values
 ```
 
 ---
@@ -762,13 +603,7 @@ git push origin main
 CircleCI dashboard → Pipelines
 ```
 
-Every pipeline run shows:
-- Which branch triggered it
-- Which jobs ran and their status (pass/fail)
-- Duration of each job
-- Full logs for every step
-
-Click any failed step to see the exact error output.
+Every pipeline run shows which branch triggered it, which jobs ran, duration, and full logs per step. Click any failed step to see the exact error.
 
 To re-run a failed pipeline:
 ```
@@ -777,38 +612,15 @@ CircleCI → Pipelines → select the run → Rerun → Rerun from failed
 
 ---
 
-## Contexts — Sharing Variables Across Projects
-
-If you have multiple projects that all need the same AWS credentials, use a **Context** instead of setting variables on each project individually.
-
-```
-CircleCI → Organisation Settings → Contexts → Create Context
-Name: aws-credentials
-Add: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, ECR_REGISTRY
-```
-
-Reference it in the workflow:
-
-```yaml
-workflows:
-  build-and-deploy:
-    jobs:
-      - build-and-push:
-          context: aws-credentials   # inject all variables from this context
-```
-
----
-
 ## Summary
 
 | Concept | CircleCI | GitHub Actions equivalent |
-|---------|----------|--------------------------|
+|---------|----------|-----------------------------|
 | Config file | `.circleci/config.yml` | `.github/workflows/*.yml` |
 | Reusable package | Orb | Action (`uses:`) |
 | Reusable steps | `commands:` | Composite action |
 | Pass data between jobs | `persist_to_workspace` / `attach_workspace` | `outputs` + `needs` |
-| Secrets | Project environment variables | Repository secrets |
-| Shared secrets | Contexts | Organisation secrets |
+| Credentials | Context | Repository / org secrets |
 | Branch filter | `filters.branches.only` | `on.push.branches` |
 | Job dependency | `requires` | `needs` |
 | Current branch | `$CIRCLE_BRANCH` | `${{ github.ref_name }}` |
@@ -818,14 +630,12 @@ workflows:
 
 ## What Comes Next — Kubernetes
 
-The same images pushed to ECR by this pipeline are what Kubernetes pulls when deploying to EKS. The `update-image-tags` job updates `kubernetes/helm/values.yaml` with the new tag, which ArgoCD detects and uses to roll out the new version automatically.
+The same Docker images pushed to ECR by this pipeline are what Kubernetes pulls when deploying to EKS. In the Kubernetes phase, the deploy stage changes from SSH + `docker run` to `helm upgrade` — the test and build stages stay exactly the same.
 
 ```
-CircleCI pipeline (now):
-  test → build → push to ECR → SSH deploy to EC2
+Now (EC2):
+  test → build → push to ECR → SSH → docker run on EC2
 
-With Kubernetes (next):
-  test → build → push to ECR → update values.yaml → ArgoCD detects change → helm upgrade on EKS
+Next (EKS):
+  test → build → push to ECR → helm upgrade → pods on EKS
 ```
-
-The test and build stages stay exactly the same. Only the deploy stage changes.
