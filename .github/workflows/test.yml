@@ -2,9 +2,8 @@ name: Test
 
 on:
   push:
-    branches-ignore:
-      - develop
-      - main
+    branches:
+      - "**"
 
 jobs:
   test:

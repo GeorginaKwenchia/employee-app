@@ -156,9 +156,9 @@ All workflow files live in:
 ```
 .github/
 └── workflows/
-    ├── test.yml       ← runs on every branch push
-    ├── deploy-dev.yml ← runs on push to develop
-    └── deploy-prod.yml← runs on push to main
+    ├── test.yml        ← runs on every branch push (all branches)
+    ├── deploy-dev.yml  ← triggers after test passes on develop
+    └── deploy-prod.yml ← triggers after test passes on main
 ```
 
 ### Basic workflow structure
@@ -395,23 +395,23 @@ main                ──────▶  test + build + deploy to PRODUCTION E
 | Branch | Who pushes here | What pipeline runs | Where it deploys |
 |--------|----------------|-------------------|-----------------|
 | Any feature/fix branch | Developers | `test.yml` — tests only | Nowhere |
-| `develop` | Merge from feature branches | `deploy-dev.yml` — test + build + deploy | Dev EC2 |
-| `main` | Merge from develop (release) | `deploy-prod.yml` — test + build + deploy | Prod EC2 |
+| `develop` | Merge from feature branches | `test.yml` → if pass → `deploy-dev.yml` | Dev EC2 |
+| `main` | Merge from develop (release) | `test.yml` → if pass → `deploy-prod.yml` | Prod EC2 |
 
 ### Why this matters
 
-- Developers work on feature branches — their code is tested automatically on every push
-- When a feature is ready, it is merged to `develop` — automatically deployed to the dev server for testing
-- When the team is happy with `develop`, it is merged to `main` — automatically deployed to production
+- `test.yml` runs on **every** branch — feature branches, `develop`, and `main`
+- The deploy workflows do **not** contain a test job — they are triggered by `workflow_run` only after `test.yml` completes successfully on the right branch
+- If tests fail on `develop` or `main`, the deploy workflow never starts
 - Production deployments require a manual approval step (configured in the GitHub environment settings)
 
 ---
 
 ## The Three Workflow Files
 
-### Workflow 1 — `test.yml` (any branch except develop and main)
+### Workflow 1 — `test.yml` (every branch)
 
-Runs on every push to any branch that is not `develop` or `main`. Only runs tests — no build, no deploy.
+Runs on every push to **every** branch — feature branches, `develop`, and `main`. Only runs tests — no build, no deploy. The deploy workflows wait for this to pass before they start.
 
 ```
 .github/workflows/test.yml
@@ -422,9 +422,8 @@ name: Test
 
 on:
   push:
-    branches-ignore:
-      - develop
-      - main
+    branches:
+      - "**"
 
 jobs:
   test:
@@ -451,17 +450,15 @@ jobs:
 ```
 
 **What this does:**
-- Triggers on any push to feature branches, fix branches, etc.
-- Checks out the code
-- Installs Python and dependencies
-- Runs pytest
-- If tests fail, the developer sees a red ✗ on their commit in GitHub
+- Triggers on every push to every branch
+- Runs pytest — if tests fail, the developer sees a red ✗ on their commit
+- The deploy workflows will not start if this fails
 
 ---
 
-### Workflow 2 — `deploy-dev.yml` (push to develop)
+### Workflow 2 — `deploy-dev.yml` (after test passes on develop)
 
-Runs on every push to `develop`. Tests, builds Docker images, pushes to ECR, deploys to the dev EC2 instance.
+Triggered by `workflow_run` — only starts when `test.yml` completes successfully on the `develop` branch. No test job inside it.
 
 ```
 .github/workflows/deploy-dev.yml
@@ -471,32 +468,15 @@ Runs on every push to `develop`. Tests, builds Docker images, pushes to ECR, dep
 name: Deploy to Development
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Test"]
     branches: [develop]
+    types: [completed]
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: pip install -r backend/requirements.txt
-
-      - name: Run tests
-        run: |
-          cd backend
-          pytest -v
-        env:
-          DATABASE_URL: sqlite:///test.db
-
   build-and-push:
     runs-on: ubuntu-latest
-    needs: test
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
     steps:
@@ -512,6 +492,24 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Create ECR repositories if they do not exist
+        run: |
+          aws ecr describe-repositories --repository-names employee-backend \
+            --region ${{ vars.AWS_REGION }} 2>/dev/null || \
+          aws ecr create-repository \
+            --repository-name employee-backend \
+            --region ${{ vars.AWS_REGION }} \
+            --image-scanning-configuration scanOnPush=true \
+            --encryption-configuration encryptionType=AES256
+
+          aws ecr describe-repositories --repository-names employee-frontend \
+            --region ${{ vars.AWS_REGION }} 2>/dev/null || \
+          aws ecr create-repository \
+            --repository-name employee-frontend \
+            --region ${{ vars.AWS_REGION }} \
+            --image-scanning-configuration scanOnPush=true \
+            --encryption-configuration encryptionType=AES256
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
@@ -538,18 +536,14 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            # Authenticate Docker to ECR
             aws ecr get-login-password --region ${{ vars.AWS_REGION }} | \
               docker login --username AWS --password-stdin ${{ vars.ECR_REGISTRY }}
 
-            # Pull latest images
             docker pull ${{ vars.ECR_REGISTRY }}/employee-backend:${{ needs.build-and-push.outputs.tag }}
             docker pull ${{ vars.ECR_REGISTRY }}/employee-frontend:${{ needs.build-and-push.outputs.tag }}
 
-            # Stop and remove old containers
             docker rm -f backend frontend || true
 
-            # Start new containers
             docker run -d --name backend --restart unless-stopped \
               --network employee-network \
               -p 5000:5000 \
@@ -564,9 +558,67 @@ jobs:
 
 ---
 
-### Workflow 3 — `deploy-prod.yml` (push to main)
+## What is ECR and Why Create the Repo First?
 
-Identical pipeline to dev but uses the `production` environment — which has different secrets (prod EC2 host, prod SSH key) and requires manual approval.
+**Amazon Elastic Container Registry (ECR)** is AWS's private Docker registry. It is where your Docker images live after they are built — and where EKS (or EC2) pulls them from when deploying.
+
+Unlike Docker Hub which creates a repository automatically when you push, **ECR requires the repository to exist before you can push to it**. If you try to push without creating the repo first, you get an error.
+
+### ECR concepts
+
+| Concept | What it means |
+|---------|---------------|
+| Registry | Your AWS account's ECR endpoint — `<account-id>.dkr.ecr.<region>.amazonaws.com` |
+| Repository | A named store for one image — `employee-backend`, `employee-frontend` |
+| Image | A specific version stored in a repository |
+| Tag | A label on an image — `dev-20240101-120000`, `prod-20240101-130000`, `latest` |
+| URI | Full image address — `<registry>/<repository>:<tag>` |
+
+### How the create step works
+
+```bash
+# Try to describe the repo — succeeds silently if it exists
+aws ecr describe-repositories --repository-names employee-backend 2>/dev/null || \
+# If describe fails (repo does not exist), create it
+aws ecr create-repository \
+  --repository-name employee-backend \
+  --image-scanning-configuration scanOnPush=true \
+  --encryption-configuration encryptionType=AES256
+```
+
+- `2>/dev/null` — suppresses the error output when the repo does not exist
+- `||` — only runs the right side if the left side fails
+- `scanOnPush=true` — ECR automatically scans every pushed image for known CVEs (security vulnerabilities)
+- `encryptionType=AES256` — images are encrypted at rest in AWS
+
+The first time the pipeline runs it creates the repos. Every run after that the create step is a no-op — it finds the repo already exists and does nothing.
+
+### How ECR authentication works
+
+ECR does not use a username and password like Docker Hub. It uses temporary tokens issued by AWS:
+
+```bash
+# Get a temporary token from AWS (valid for 12 hours)
+aws ecr get-login-password --region us-east-1 | \
+  docker login --username AWS --password-stdin <registry>
+```
+
+In the pipeline this is handled by the `aws-actions/amazon-ecr-login@v2` action which does this automatically using the AWS credentials you configured.
+
+### Viewing your images in ECR
+
+After the pipeline runs:
+```
+AWS Console → ECR → Repositories → employee-backend
+```
+
+You will see every image that has been pushed, with its tag, size, push date, and scan results.
+
+---
+
+### Workflow 3 — `deploy-prod.yml` (after test passes on main)
+
+Identical to deploy-dev but triggered when `test.yml` passes on `main`, uses the `production` environment, and requires manual approval before deploying.
 
 ```
 .github/workflows/deploy-prod.yml
@@ -576,32 +628,15 @@ Identical pipeline to dev but uses the `production` environment — which has di
 name: Deploy to Production
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Test"]
     branches: [main]
+    types: [completed]
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: pip install -r backend/requirements.txt
-
-      - name: Run tests
-        run: |
-          cd backend
-          pytest -v
-        env:
-          DATABASE_URL: sqlite:///test.db
-
   build-and-push:
     runs-on: ubuntu-latest
-    needs: test
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
     steps:
@@ -617,6 +652,24 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Create ECR repositories if they do not exist
+        run: |
+          aws ecr describe-repositories --repository-names employee-backend \
+            --region ${{ vars.AWS_REGION }} 2>/dev/null || \
+          aws ecr create-repository \
+            --repository-name employee-backend \
+            --region ${{ vars.AWS_REGION }} \
+            --image-scanning-configuration scanOnPush=true \
+            --encryption-configuration encryptionType=AES256
+
+          aws ecr describe-repositories --repository-names employee-frontend \
+            --region ${{ vars.AWS_REGION }} 2>/dev/null || \
+          aws ecr create-repository \
+            --repository-name employee-frontend \
+            --region ${{ vars.AWS_REGION }} \
+            --image-scanning-configuration scanOnPush=true \
+            --encryption-configuration encryptionType=AES256
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
@@ -634,7 +687,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build-and-push
-    environment: production        # ← uses production secrets + requires approval
+    environment: production
     steps:
       - name: Deploy to prod EC2
         uses: appleboy/ssh-action@v1
@@ -673,20 +726,42 @@ Developer workflow:
 1. Create a feature branch
    git checkout -b feature/add-search
 
-2. Push code → test.yml runs automatically
+2. Push code → test.yml runs on the feature branch
    git push origin feature/add-search
-   → GitHub runs: pytest ✓ or ✗
+   → test.yml: pytest ✓ or ✗
+   → no deploy workflow triggered (wrong branch)
 
-3. Merge to develop (PR or direct push)
+3. Merge to develop
    git checkout develop && git merge feature/add-search && git push
-   → GitHub runs: pytest → docker build → docker push → SSH deploy to DEV EC2
+   → test.yml runs on develop: pytest ✓
+   → test passes → deploy-dev.yml triggers via workflow_run
+   → deploy-dev.yml: create ECR repos → docker build → push → SSH deploy to DEV EC2
 
 4. Test on dev server: http://<DEV-EC2-IP>:8080
 
-5. Merge develop to main (release)
+5. Merge develop to main
    git checkout main && git merge develop && git push
-   → GitHub runs: pytest → docker build → docker push → APPROVAL REQUIRED → SSH deploy to PROD EC2
+   → test.yml runs on main: pytest ✓
+   → test passes → deploy-prod.yml triggers via workflow_run
+   → deploy-prod.yml: create ECR repos → docker build → push → APPROVAL REQUIRED → SSH deploy to PROD EC2
 ```
+
+### The `workflow_run` trigger explained
+
+```yaml
+on:
+  workflow_run:
+    workflows: ["Test"]   # must match the 'name:' field in test.yml exactly
+    branches: [develop]   # only when Test ran on this branch
+    types: [completed]    # trigger when Test finishes (pass or fail)
+```
+
+Then inside the job:
+```yaml
+if: ${{ github.event.workflow_run.conclusion == 'success' }}
+```
+
+This means: only run if the Test workflow that triggered us actually passed. If tests failed, `conclusion` is `failure` and the entire deploy job is skipped.
 
 ---
 
@@ -745,36 +820,40 @@ The pipeline only deploys the `backend` and `frontend` containers — the databa
 Developer pushes to feature/login-fix
         │
         ▼
-test.yml triggers
+test.yml triggers on feature/login-fix
   └── pytest runs
-        ├── PASS → green tick on commit ✓
-        └── FAIL → red cross, developer notified ✗
+        ├── PASS → green tick ✓  (no deploy — not develop or main)
+        └── FAIL → red cross ✗   (developer notified, fix and push again)
 
 Developer merges to develop
         │
         ▼
-deploy-dev.yml triggers
-  ├── Job 1: test
-  │     └── pytest → must pass to continue
-  ├── Job 2: build-and-push (needs: test)
-  │     ├── docker build backend → push to ECR as dev-20240101-120000
-  │     └── docker build frontend → push to ECR as dev-20240101-120000
-  └── Job 3: deploy (needs: build-and-push, environment: development)
-        └── SSH into dev EC2
-              ├── docker pull new images
-              ├── docker rm -f old containers
-              └── docker run new containers
+test.yml triggers on develop
+  └── pytest runs
+        ├── FAIL → deploy-dev.yml never starts ✗
+        └── PASS → deploy-dev.yml triggers via workflow_run ✓
+              ├── Job 1: build-and-push
+              │     ├── create ECR repos (if not exist)
+              │     ├── docker build backend → push as dev-20240101-120000
+              │     └── docker build frontend → push as dev-20240101-120000
+              └── Job 2: deploy (environment: development)
+                    └── SSH into dev EC2
+                          ├── docker pull new images from ECR
+                          ├── docker rm -f old containers
+                          └── docker run new containers
 
 Team merges develop to main
         │
         ▼
-deploy-prod.yml triggers
-  ├── Job 1: test → pytest
-  ├── Job 2: build-and-push → ECR tag: prod-20240101-130000
-  └── Job 3: deploy (environment: production)
-        ├── ⏸ WAITING FOR APPROVAL
-        ├── Reviewer approves in GitHub
-        └── SSH into prod EC2 → deploy
+test.yml triggers on main
+  └── pytest runs
+        ├── FAIL → deploy-prod.yml never starts ✗
+        └── PASS → deploy-prod.yml triggers via workflow_run ✓
+              ├── Job 1: build-and-push → ECR tag: prod-20240101-130000
+              └── Job 2: deploy (environment: production)
+                    ├── ⏸ WAITING FOR MANUAL APPROVAL
+                    ├── Reviewer approves in GitHub
+                    └── SSH into prod EC2 → deploy
 ```
 
 ---
@@ -810,6 +889,8 @@ Click any failed step to see the exact error output.
 | Runner | The machine that runs the job |
 | `needs` | Makes one job wait for another to finish |
 | `environment:` | Tells a job which environment secrets to use |
+| `workflow_run` | Triggers a workflow after another workflow completes |
+| `conclusion` | The result of a workflow run — `success`, `failure`, `cancelled` |
 
 ---
 
