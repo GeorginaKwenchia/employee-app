@@ -109,3 +109,10 @@ jobs:
               --network employee-network \
               -p 8080:80 \
               ${{ vars.ECR_REGISTRY }}/employee-frontend:${{ needs.build-and-push.outputs.frontend_tag }}
+
+            # Remove dangling and old images to free disk space
+            docker image prune -f
+            docker images ${{ vars.ECR_REGISTRY }}/employee-backend --format '{{.ID}} {{.Tag}}' | \
+              grep -v '${{ needs.build-and-push.outputs.backend_tag }}' | awk '{print $1}' | xargs -r docker rmi -f || true
+            docker images ${{ vars.ECR_REGISTRY }}/employee-frontend --format '{{.ID}} {{.Tag}}' | \
+              grep -v '${{ needs.build-and-push.outputs.frontend_tag }}' | awk '{print $1}' | xargs -r docker rmi -f || true
