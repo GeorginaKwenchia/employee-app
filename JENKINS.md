@@ -56,8 +56,8 @@ Clone → Test (pytest) → Build Docker images → Push to DockerHub → SSH De
 SSH into the instance and run:
 
 ```bash
-# Java 17 — required by Jenkins
-sudo dnf install -y java-17-amazon-corretto-headless
+# Java 21 — required by Jenkins (LTS requires Java 21 or 25)
+sudo dnf install -y java-21-amazon-corretto-headless
 
 # Add the Jenkins repo
 sudo wget -O /etc/yum.repos.d/jenkins.repo \
