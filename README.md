@@ -21,7 +21,8 @@ employee-app/
 ├── docker-compose.python.yml # Kubernetes module prep — Python + Postgres container
 ├── BUILD.md                  # Build tutorial (Python, Node.js, Java, EC2)
 ├── DOCKER.md                 # Docker tutorial
-├── Jenkinsfile               # Jenkins CI/CD pipeline
+├── JENKINS.md                # Jenkins tutorial (install, job types, Blue Ocean, pipeline)
+├── Jenkinsfile               # Jenkins pipeline — test → build → push DockerHub → deploy EC2
 └── .circleci/config.yml      # CircleCI CI/CD pipeline
 ```
 
@@ -31,7 +32,8 @@ employee-app/
 |--------|---------|----------|-------|
 | Build (EC2) | Python / Node.js / Java | PostgreSQL on EC2 | `BUILD.md`, `scripts/` |
 | Docker | Node.js | Postgres container | `DOCKER.md`, `docker-compose.yml` |
-| CI/CD | Python | Postgres container | `CICD.md`, `.github/workflows/` |
+| Jenkins CI/CD | Python | Postgres container | `JENKINS.md`, `Jenkinsfile` |
+| GitHub Actions CI/CD | Python | Postgres container | `CICD.md`, `.github/workflows/` |
 | Kubernetes | Python | RDS (Terraform) | `kubernetes/manifests/` |
 | Helm | Python | RDS (Terraform) | `kubernetes/helm/` |
 | ArgoCD | Python | RDS (Terraform) | `kubernetes/argocd/` |
@@ -179,6 +181,64 @@ docker compose -f docker-compose.python.yml up --build
 docker compose down       # stop
 docker compose down -v    # stop and wipe database
 ```
+
+---
+
+## Option D — CI/CD with Jenkins (DockerHub + EC2 Deploy)
+
+Jenkins runs on its own EC2 instance. Every push to `main` triggers the pipeline: test → build Docker images → push to DockerHub → SSH deploy to the app EC2.
+
+### Jenkins EC2 Requirements
+
+| Setting | Value |
+|---------|-------|
+| AMI | Amazon Linux 2023 |
+| Instance type | `t3.medium` |
+| Security group | 22 (SSH), 8080 (Jenkins UI) |
+
+### Pipeline Stages
+
+| Stage | What it does |
+|-------|--------------|
+| Test | `pip install` + `pytest` against SQLite |
+| Build & Push | `docker build` backend + frontend, push to `chafah/employee-backend` and `chafah/employee-frontend` on DockerHub |
+| Deploy | SSH into app EC2, `docker pull`, remove old containers, `docker run` backend on `:5000` and frontend on `:80` |
+
+### Jenkins Job Types
+
+Three job types are covered in `JENKINS.md`:
+
+| Job Type | How it's configured | Best for |
+|----------|--------------------|---------|
+| Freestyle | Jenkins UI only | Simple tasks, demos, intro to Jenkins |
+| Pipeline | `Jenkinsfile` in repo | Single-branch CI/CD |
+| Multibranch Pipeline | `Jenkinsfile` per branch | Full team workflow, PR builds |
+
+### Credentials Required in Jenkins
+
+| ID | Kind | Value |
+|----|------|-------|
+| `dockerhub-credentials` | Username/password | DockerHub username + access token |
+| `ec2-ssh-key` | SSH private key | `.pem` key for the app EC2 |
+| `ec2-host` | Secret text | App EC2 public IP |
+| `database-url` | Secret text | `postgresql://postgres:postgres@db:5432/employees` |
+
+### DockerHub Repositories
+
+| Image | DockerHub repo |
+|-------|----------------|
+| Backend | `chafah/employee-backend` |
+| Frontend | `chafah/employee-frontend` |
+
+### Blue Ocean
+
+Blue Ocean gives Jenkins a modern visual pipeline UI. After installing the Blue Ocean plugin, access it at:
+
+```
+http://<JENKINS_EC2_PUBLIC_IP>:8080/blue
+```
+
+> See `JENKINS.md` for the full step-by-step Jenkins guide.
 
 ---
 
@@ -370,8 +430,8 @@ Grafana login: `admin` / `admin123`
 
 ## CI/CD
 
-| Pipeline | Files |
-|----------|-------|
-| GitHub Actions | `.github/workflows/test.yml`, `deploy-dev.yml`, `deploy-prod.yml` |
-| Jenkins | `Jenkinsfile` |
-| CircleCI | `.circleci/config.yml` |
+| Pipeline | Registry | Deploy target | Files |
+|----------|----------|---------------|-------|
+| GitHub Actions | ECR | EC2 (dev + prod) | `.github/workflows/` |
+| Jenkins | DockerHub | EC2 | `Jenkinsfile`, `JENKINS.md` |
+| CircleCI | ECR | EC2 | `.circleci/config.yml` |
