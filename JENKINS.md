@@ -99,12 +99,40 @@ Paste the password into the browser.
 
 Go to **Manage Jenkins → Plugins → Available plugins** and install:
 
+### Core / Pipeline
+
 | Plugin | Why |
 |--------|-----|
 | **Pipeline** | Runs `Jenkinsfile` pipelines (usually pre-installed) |
+| **Pipeline: Stage View** | Shows stages as a visual table in classic UI |
 | **Git** | Clones your GitHub repo |
-| **Docker Pipeline** | Docker commands inside pipelines |
+| **GitHub Integration** | Webhook trigger from GitHub |
 | **SSH Agent** | SSH into the deploy EC2 using a private key |
+| **Docker Pipeline** | Docker commands inside pipelines |
+| **Credentials Binding** | `withCredentials` block in pipelines |
+
+### Blue Ocean
+
+| Plugin | Why |
+|--------|-----|
+| **Blue Ocean** | Modern pipeline UI — installs all Blue Ocean plugins in one go |
+
+After installing Blue Ocean, access it at:
+```
+http://<JENKINS_EC2_PUBLIC_IP>:8080/blue
+```
+Blue Ocean shows each pipeline run as a visual stage-by-stage flow with colour-coded pass/fail and live log streaming per stage.
+
+### Useful Extras
+
+| Plugin | Why |
+|--------|-----|
+| **Timestamper** | Adds timestamps to every console log line |
+| **AnsiColor** | Renders colour in console output |
+| **Build Timeout** | Kills a hung build after N minutes |
+| **Workspace Cleanup** | Wipes the workspace before each build |
+| **Email Extension** | Send rich HTML email notifications on failure |
+| **Slack Notification** | Post build results to a Slack channel |
 
 Search each one, tick it, click **Install**. Restart Jenkins when prompted.
 
@@ -180,16 +208,79 @@ DOCKERHUB_FRONTEND = 'chafah/employee-frontend'
 
 ---
 
-## Part 9 — Create the Pipeline
+## Part 9 — Jenkins Job Types
 
-### 1. New Item
+Jenkins has three main job types. Each one is created from **New Item** on the home page.
 
-- Click **New Item**
-- Name: `employee-app`
-- Type: **Pipeline**
-- Click **OK**
+---
 
-### 2. Configure
+### Job Type 1 — Freestyle Job
+
+The simplest job type. You configure everything through the UI — no script file needed. Good for one-off tasks, running a shell script, or teaching what Jenkins does before introducing pipelines.
+
+**Create it:**
+
+1. Click **New Item**
+2. Name: `employee-app-freestyle`
+3. Select **Freestyle project** → **OK**
+
+**Configure:**
+
+- **Source Code Management** → Git
+  - Repository URL: `https://github.com/LandmakTechnology/employee-app.git`
+  - Branch: `*/main`
+- **Build Steps** → Add build step → **Execute shell**
+
+```bash
+pip install -r backend/requirements.txt
+cd backend
+DATABASE_URL=sqlite:///test.db pytest -v
+```
+
+Click **Save** → **Build Now**.
+
+**What it teaches:** Jenkins basics — source control integration, build steps, console output, build history. No Groovy, no Jenkinsfile.
+
+---
+
+### Job Type 2 — Multibranch Pipeline
+
+Automatically discovers every branch and pull request in your repo that has a `Jenkinsfile`. Each branch gets its own pipeline. When a branch is deleted, its pipeline disappears too.
+
+This is the most production-like setup — `main` runs the full deploy pipeline, `develop` runs tests only, feature branches run tests on every push.
+
+**Create it:**
+
+1. Click **New Item**
+2. Name: `employee-app-multibranch`
+3. Select **Multibranch Pipeline** → **OK**
+
+**Configure:**
+
+- **Branch Sources** → Add source → **Git**
+  - Project Repository: `https://github.com/LandmakTechnology/employee-app.git`
+- **Build Configuration**
+  - Mode: by Jenkinsfile
+  - Script Path: `Jenkinsfile`
+- **Scan Multibranch Pipeline Triggers** → tick **Periodically if not otherwise run** → interval: `1 minute`
+
+Click **Save**. Jenkins immediately scans the repo and creates a pipeline for every branch that has a `Jenkinsfile`.
+
+**What it teaches:** Branch-based CI/CD — different branches can have different pipeline behaviour, pull requests get their own build, branch cleanup is automatic.
+
+---
+
+### Job Type 3 — Pipeline (from SCM)
+
+A single pipeline tied to one branch, driven by the `Jenkinsfile` in the repo. This is what the `employee-app` pipeline uses.
+
+**Create it:**
+
+1. Click **New Item**
+2. Name: `employee-app`
+3. Select **Pipeline** → **OK**
+
+**Configure:**
 
 Scroll to the **Pipeline** section:
 
@@ -201,11 +292,27 @@ Scroll to the **Pipeline** section:
 | Branch | `*/main` |
 | Script Path | `Jenkinsfile` |
 
-Click **Save**.
+Click **Save** → **Build Now**.
 
-### 3. Run It
+**What it teaches:** Pipeline as code — the `Jenkinsfile` lives in the repo, versioned alongside the application code.
 
-Click **Build Now**. Click the build number → **Console Output** to watch it live.
+---
+
+### Comparison
+
+| | Freestyle | Pipeline | Multibranch Pipeline |
+|---|---|---|---|
+| Config location | Jenkins UI | `Jenkinsfile` in repo | `Jenkinsfile` in repo |
+| Multi-branch support | No | No (one branch) | Yes (all branches) |
+| Pipeline as code | No | Yes | Yes |
+| Best for | Simple tasks / demos | Single-branch CI/CD | Full team workflow |
+
+---
+
+### Run It
+
+Click **Build Now** on any job. Click the build number → **Console Output** to watch it live.
+Or open Blue Ocean at `http://<JENKINS_EC2_PUBLIC_IP>:8080/blue` for the visual view.
 
 ---
 
