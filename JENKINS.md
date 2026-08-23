@@ -34,6 +34,9 @@ Clone → Test (pytest) → Build Docker images → Push to DockerHub → SSH De
 | Freestyle | Jenkins UI only | Simple tasks, demos, intro to Jenkins |
 | Pipeline | `Jenkinsfile` in repo | Single-branch CI/CD |
 | Multibranch Pipeline | `Jenkinsfile` per branch | Full team workflow, PR builds |
+| Multi-configuration | Jenkins UI (axes) | Matrix testing across environments |
+| Folder | N/A | Organising jobs, scoping credentials |
+| Organization Folder | `Jenkinsfile` per repo | Org-wide CI/CD, auto-discover repos |
 
 ---
 
@@ -233,26 +236,23 @@ DOCKERHUB_FRONTEND = 'chafah/employee-frontend'
 
 ## Part 9 — Jenkins Job Types
 
-Jenkins has three main job types. Each one is created from **New Item** on the home page.
+When you click **New Item** in Jenkins, you see all available job types. Here is every type, what it does, and when to use it.
 
 ---
 
-### Job Type 1 — Freestyle Job
+### 1. Freestyle Project
 
-The simplest job type. You configure everything through the UI — no script file needed. Good for one-off tasks, running a shell script, or teaching what Jenkins does before introducing pipelines.
+The original Jenkins job type. Everything is configured through the UI — no script file needed. You pick a source repo, add build steps (shell commands, Maven goals, Ant targets), set triggers, and configure post-build actions, all through forms.
+
+Good for: simple tasks, one-off scripts, teaching Jenkins basics before introducing pipelines.
 
 **Create it:**
 
-1. Click **New Item**
-2. Name: `employee-app-freestyle`
-3. Select **Freestyle project** → **OK**
-
-**Configure:**
-
-- **Source Code Management** → Git
-  - Repository URL: `https://github.com/LandmakTechnology/employee-app.git`
-  - Branch: `*/main`
-- **Build Steps** → Add build step → **Execute shell**
+1. **New Item** → name: `employee-app-freestyle` → **Freestyle project** → **OK**
+2. **Source Code Management** → Git
+   - Repository URL: `https://github.com/LandmakTechnology/employee-app.git`
+   - Branch: `*/main`
+3. **Build Steps** → **Execute shell**:
 
 ```bash
 pip install -r backend/requirements.txt
@@ -260,52 +260,22 @@ cd backend
 DATABASE_URL=sqlite:///test.db pytest -v
 ```
 
-Click **Save** → **Build Now**.
+4. Click **Save** → **Build Now**
 
-**What it teaches:** Jenkins basics — source control integration, build steps, console output, build history. No Groovy, no Jenkinsfile.
-
----
-
-### Job Type 2 — Multibranch Pipeline
-
-Automatically discovers every branch and pull request in your repo that has a `Jenkinsfile`. Each branch gets its own pipeline. When a branch is deleted, its pipeline disappears too.
-
-This is the most production-like setup — `main` runs the full deploy pipeline, `develop` runs tests only, feature branches run tests on every push.
-
-**Create it:**
-
-1. Click **New Item**
-2. Name: `employee-app-multibranch`
-3. Select **Multibranch Pipeline** → **OK**
-
-**Configure:**
-
-- **Branch Sources** → Add source → **Git**
-  - Project Repository: `https://github.com/LandmakTechnology/employee-app.git`
-- **Build Configuration**
-  - Mode: by Jenkinsfile
-  - Script Path: `Jenkinsfile`
-- **Scan Multibranch Pipeline Triggers** → tick **Periodically if not otherwise run** → interval: `1 minute`
-
-Click **Save**. Jenkins immediately scans the repo and creates a pipeline for every branch that has a `Jenkinsfile`.
-
-**What it teaches:** Branch-based CI/CD — different branches can have different pipeline behaviour, pull requests get their own build, branch cleanup is automatic.
+**What it teaches:** Jenkins basics — SCM integration, build steps, console output, build history. No Groovy, no Jenkinsfile.
 
 ---
 
-### Job Type 3 — Pipeline (from SCM)
+### 2. Pipeline
 
-A single pipeline tied to one branch, driven by the `Jenkinsfile` in the repo. This is what the `employee-app` pipeline uses.
+A single pipeline driven by a `Jenkinsfile` stored in your repo (Pipeline script from SCM) or written directly in the Jenkins UI (Pipeline script). The `Jenkinsfile` uses Groovy-based DSL and defines stages that Jenkins executes in order.
+
+This is the job type used by the `employee-app` pipeline.
 
 **Create it:**
 
-1. Click **New Item**
-2. Name: `employee-app`
-3. Select **Pipeline** → **OK**
-
-**Configure:**
-
-Scroll to the **Pipeline** section:
+1. **New Item** → name: `employee-app` → **Pipeline** → **OK**
+2. Scroll to **Pipeline** section:
 
 | Field | Value |
 |-------|-------|
@@ -315,27 +285,110 @@ Scroll to the **Pipeline** section:
 | Branch | `*/main` |
 | Script Path | `Jenkinsfile` |
 
-Click **Save** → **Build Now**.
+3. Click **Save** → **Build Now**
 
-**What it teaches:** Pipeline as code — the `Jenkinsfile` lives in the repo, versioned alongside the application code.
+**What it teaches:** Pipeline as code — the `Jenkinsfile` lives in the repo, versioned with the application.
+
+---
+
+### 3. Multibranch Pipeline
+
+Automatically scans your repo and creates a separate pipeline for every branch and pull request that contains a `Jenkinsfile`. When a branch is deleted, its pipeline is removed automatically.
+
+This is the most production-like setup — `main` runs the full deploy, `develop` runs tests, feature branches run tests on every push.
+
+**Create it:**
+
+1. **New Item** → name: `employee-app-multibranch` → **Multibranch Pipeline** → **OK**
+2. **Branch Sources** → **Add source** → **Git**
+   - Project Repository: `https://github.com/LandmakTechnology/employee-app.git`
+3. **Build Configuration** → Script Path: `Jenkinsfile`
+4. **Scan Multibranch Pipeline Triggers** → tick **Periodically if not otherwise run** → `1 minute`
+5. Click **Save** — Jenkins immediately scans and creates a pipeline per branch
+
+**What it teaches:** Branch-based CI/CD — each branch has its own build history, PRs get their own pipeline, branch cleanup is automatic.
+
+---
+
+### 4. Multi-configuration Project (Matrix)
+
+Runs the same build job across multiple combinations of parameters — called axes. For example, test against Python 3.9, 3.10, and 3.11 simultaneously, or test on Linux and Windows at the same time. Each combination runs as a separate sub-build and results are shown in a matrix grid.
+
+Requires the **Matrix Project** plugin (search and install from **Manage Jenkins → Plugins**).
+
+**Create it:**
+
+1. **New Item** → name: `employee-app-matrix` → **Multi-configuration project** → **OK**
+2. **Source Code Management** → Git → same repo URL and branch
+3. **Configuration Matrix** → **Add axis** → **User-defined Axis**
+   - Name: `PYTHON_VERSION`
+   - Values: `3.9 3.10 3.11`
+4. **Build Steps** → **Execute shell**:
+
+```bash
+pip install -r backend/requirements.txt
+cd backend
+DATABASE_URL=sqlite:///test.db pytest -v
+```
+
+5. Click **Save** → **Build Now** — Jenkins runs one build per axis value in parallel
+
+**What it teaches:** Matrix testing — validate your app works across multiple environments or configurations in a single job.
+
+---
+
+### 5. Folder
+
+Not a build job — a container for organising other jobs. Folders can be nested. Each folder has its own credentials scope, so secrets defined in a folder are only available to jobs inside it.
+
+Requires the **Folders** plugin (usually pre-installed with suggested plugins).
+
+**Create it:**
+
+1. **New Item** → name: `employee-app-jobs` → **Folder** → **OK**
+2. Add a display name and description → **Save**
+3. Click into the folder → **New Item** to create jobs inside it
+
+**What it teaches:** Job organisation — group related pipelines together, scope credentials per team or project.
+
+---
+
+### 6. Organization Folder
+
+Scans an entire GitHub organisation (or Bitbucket/GitLab) and automatically creates a Multibranch Pipeline for every repo that contains a `Jenkinsfile`. New repos are discovered automatically on the next scan.
+
+Requires the **GitHub Branch Source** plugin.
+
+**Create it:**
+
+1. **New Item** → name: `LandmakTechnology` → **Organization Folder** → **OK**
+2. **Repository Sources** → **Add** → **GitHub**
+   - Credentials: add a GitHub personal access token
+   - Owner: `LandmakTechnology`
+3. **Scan Organization Triggers** → tick **Periodically** → `1 hour`
+4. Click **Save** — Jenkins scans the org and creates pipelines for every repo with a `Jenkinsfile`
+
+**What it teaches:** Organisation-wide CI/CD — one Jenkins item manages every repo in a GitHub org automatically.
 
 ---
 
 ### Comparison
 
-| | Freestyle | Pipeline | Multibranch Pipeline |
-|---|---|---|---|
-| Config location | Jenkins UI | `Jenkinsfile` in repo | `Jenkinsfile` in repo |
-| Multi-branch support | No | No (one branch) | Yes (all branches) |
-| Pipeline as code | No | Yes | Yes |
-| Best for | Simple tasks / demos | Single-branch CI/CD | Full team workflow |
+| Job Type | Config location | Multi-branch | Best for |
+|----------|----------------|--------------|----------|
+| Freestyle | Jenkins UI | No | Simple tasks, demos, Jenkins intro |
+| Pipeline | `Jenkinsfile` in repo | No (one branch) | Single-branch CI/CD |
+| Multibranch Pipeline | `Jenkinsfile` per branch | Yes | Full team workflow, PR builds |
+| Multi-configuration | Jenkins UI | No | Matrix testing across environments |
+| Folder | N/A | N/A | Organising jobs, scoping credentials |
+| Organization Folder | `Jenkinsfile` per repo | Yes (all repos) | Org-wide CI/CD, auto-discover repos |
 
 ---
 
-### Run It
+### Run any job
 
 Click **Build Now** on any job. Click the build number → **Console Output** to watch it live.
-Or open Blue Ocean at `http://<JENKINS_EC2_PUBLIC_IP>:8080/blue` for the visual view.
+Or open Blue Ocean at `http://<JENKINS_EC2_PUBLIC_IP>:8080/blue` for the visual stage view.
 
 ---
 
