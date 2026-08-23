@@ -242,27 +242,161 @@ When you click **New Item** in Jenkins, you see all available job types. Here is
 
 ### 1. Freestyle Project
 
-The original Jenkins job type. Everything is configured through the UI — no script file needed. You pick a source repo, add build steps (shell commands, Maven goals, Ant targets), set triggers, and configure post-build actions, all through forms.
+The original Jenkins job type. Everything is configured through the Jenkins UI — no script file, no Groovy, no Jenkinsfile. You fill in forms: where is the code, what commands to run, when to trigger, what to do after. Jenkins translates your form inputs into a build.
 
-Good for: simple tasks, one-off scripts, teaching Jenkins basics before introducing pipelines.
+This is the best starting point for teaching Jenkins because students see every concept (SCM, build steps, triggers, post-build actions) as a visible UI field before they ever write a Jenkinsfile.
 
-**Create it:**
+---
 
-1. **New Item** → name: `employee-app-freestyle` → **Freestyle project** → **OK**
-2. **Source Code Management** → Git
-   - Repository URL: `https://github.com/LandmakTechnology/employee-app.git`
-   - Branch: `*/main`
-3. **Build Steps** → **Execute shell**:
+#### Step 1 — Create the job
+
+1. On the Jenkins dashboard click **New Item**
+2. Enter name: `employee-app-freestyle`
+3. Select **Freestyle project**
+4. Click **OK**
+
+---
+
+#### Step 2 — Connect to GitHub (Source Code Management)
+
+This tells Jenkins where to clone the code from.
+
+1. Scroll to **Source Code Management**
+2. Select **Git**
+3. Fill in:
+
+| Field | Value |
+|-------|-------|
+| Repository URL | `https://github.com/LandmakTechnology/employee-app.git` |
+| Credentials | None (public repo) |
+| Branch Specifier | `*/main` |
+
+Jenkins will clone the repo into a workspace directory on the Jenkins server before running any build step.
+
+---
+
+#### Step 3 — Set a Build Trigger
+
+This controls when the job runs automatically.
+
+1. Scroll to **Build Triggers**
+2. Tick **Poll SCM**
+3. Set schedule: `H/5 * * * *` (check GitHub every 5 minutes for new commits)
+
+> Poll SCM is good for teaching. For production use the GitHub webhook instead (covered in Part 10).
+
+---
+
+#### Step 4 — Add Build Steps
+
+Build steps are the actual commands Jenkins runs. We will add three steps to mirror the full pipeline: test, build Docker image, run the container.
+
+**Step 4a — Test the backend**
+
+1. Scroll to **Build Steps** → click **Add build step** → **Execute shell**
+2. Paste:
 
 ```bash
+echo "=== Installing dependencies ==="
 pip install -r backend/requirements.txt
+
+echo "=== Running tests ==="
 cd backend
 DATABASE_URL=sqlite:///test.db pytest -v
 ```
 
-4. Click **Save** → **Build Now**
+This installs the Python packages from `backend/requirements.txt` and runs pytest using SQLite so no real database is needed.
 
-**What it teaches:** Jenkins basics — SCM integration, build steps, console output, build history. No Groovy, no Jenkinsfile.
+**Step 4b — Build the Docker image**
+
+1. Click **Add build step** → **Execute shell** again
+2. Paste:
+
+```bash
+echo "=== Building Docker image ==="
+docker build -t employee-backend:freestyle-${BUILD_NUMBER} backend/
+docker build -t employee-frontend:freestyle-${BUILD_NUMBER} frontend/
+
+echo "=== Images built ==="
+docker images | grep employee
+```
+
+`${BUILD_NUMBER}` is a built-in Jenkins variable — it increments with every build (1, 2, 3…). This tags each image uniquely so you can tell builds apart.
+
+**Step 4c — Push to DockerHub**
+
+To push to DockerHub from a Freestyle job you use the **Credentials Binding** plugin to inject the DockerHub secret into the shell environment.
+
+1. Scroll up to **Build Environment** → tick **Use secret text(s) or file(s)**
+2. Click **Add** → **Username and password (separated)**
+
+| Field | Value |
+|-------|-------|
+| Username Variable | `DOCKER_USER` |
+| Password Variable | `DOCKER_PASS` |
+| Credentials | select `dockerhub-credentials` |
+
+3. Back in **Build Steps** → **Add build step** → **Execute shell**:
+
+```bash
+echo "=== Logging in to DockerHub ==="
+echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+
+echo "=== Pushing images ==="
+docker push chafah/employee-backend:freestyle-${BUILD_NUMBER}
+docker push chafah/employee-frontend:freestyle-${BUILD_NUMBER}
+
+docker logout
+```
+
+> The credentials are injected as environment variables at runtime. They never appear in the console log.
+
+---
+
+#### Step 5 — Add Post-build Actions
+
+Post-build actions run after all build steps finish — whether the build passed or failed.
+
+1. Scroll to **Post-build Actions** → **Add post-build action** → **Archive the artifacts**
+   - Files to archive: `backend/test-results/*.xml` *(if pytest is configured to output XML)*
+2. **Add post-build action** → **Publish JUnit test result report**
+   - Test report XMLs: `backend/test-results/*.xml`
+
+This makes test results visible directly on the build page as a pass/fail graph over time.
+
+---
+
+#### Step 6 — Save and run
+
+1. Click **Save**
+2. Click **Build Now** on the left sidebar
+3. Click the build number that appears under **Build History** (e.g. `#1`)
+4. Click **Console Output** to watch every command run live
+
+You will see Jenkins:
+- Clone the repo from GitHub
+- Run pip install and pytest
+- Build the Docker images
+- Push to DockerHub
+
+---
+
+#### Key concepts this job teaches
+
+| Concept | Where you see it |
+|---------|------------------|
+| Workspace | Jenkins clones the repo to `/var/lib/jenkins/workspace/employee-app-freestyle` |
+| Build number | `${BUILD_NUMBER}` increments each run — visible in image tags |
+| Environment variables | `DOCKER_USER`, `DOCKER_PASS` injected via Credentials Binding |
+| Build triggers | Poll SCM checks GitHub every 5 minutes |
+| Post-build actions | Test results archived and graphed per build |
+| Console output | Every shell command and its stdout/stderr printed live |
+
+---
+
+#### Freestyle vs Pipeline — the key difference
+
+With Freestyle, the job configuration lives only in Jenkins. If you delete the job, the configuration is gone. With a Pipeline job, the `Jenkinsfile` lives in the Git repo — it is versioned, reviewed, and survives a Jenkins reinstall. That is why teams move from Freestyle to Pipeline once they outgrow simple builds.
 
 ---
 
