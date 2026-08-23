@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     environment {
-        DOCKERHUB_BACKEND  = 'your-dockerhub-username/employee-backend'
-        DOCKERHUB_FRONTEND = 'your-dockerhub-username/employee-frontend'
+        DOCKERHUB_BACKEND  = 'chafah/employee-backend'
+        DOCKERHUB_FRONTEND = 'chafah/employee-frontend'
         IMAGE_TAG          = "build-${BUILD_NUMBER}"
     }
 

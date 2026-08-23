@@ -174,8 +174,8 @@ Make sure the Jenkins server can SSH into this instance using the key you added 
 Open `Jenkinsfile` in the repo and replace the placeholder with your actual DockerHub username:
 
 ```groovy
-DOCKERHUB_BACKEND  = 'your-dockerhub-username/employee-backend'
-DOCKERHUB_FRONTEND = 'your-dockerhub-username/employee-frontend'
+DOCKERHUB_BACKEND  = 'chafah/employee-backend'
+DOCKERHUB_FRONTEND = 'chafah/employee-frontend'
 ```
 
 ---
