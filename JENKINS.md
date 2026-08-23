@@ -9,8 +9,31 @@ It is self-hosted — you run it on your own EC2 instance. Full control, no per-
 The pipeline for this app does:
 
 ```
-Clone → Test (pytest) → Build Docker images → Push to DockerHub → Deploy to EC2
+Clone → Test (pytest) → Build Docker images → Push to DockerHub → SSH Deploy to EC2
 ```
+
+### Pipeline Stages
+
+| Stage | What it does |
+|-------|--------------|
+| Test | `pip install -r requirements.txt` + `pytest` against SQLite |
+| Build & Push | `docker build` backend + frontend, push to DockerHub |
+| Deploy | SSH into app EC2, `docker pull`, remove old containers, `docker run` |
+
+### DockerHub Repositories
+
+| Image | DockerHub repo |
+|-------|----------------|
+| Backend | `chafah/employee-backend` |
+| Frontend | `chafah/employee-frontend` |
+
+### Jenkins Job Types Covered
+
+| Job Type | How it's configured | Best for |
+|----------|--------------------|---------|
+| Freestyle | Jenkins UI only | Simple tasks, demos, intro to Jenkins |
+| Pipeline | `Jenkinsfile` in repo | Single-branch CI/CD |
+| Multibranch Pipeline | `Jenkinsfile` per branch | Full team workflow, PR builds |
 
 ---
 
