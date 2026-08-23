@@ -2,69 +2,78 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION      = 'us-east-1'
-        ECR_REGISTRY    = '075120018043.dkr.ecr.us-east-1.amazonaws.com'
-        BACKEND_REPO    = "${ECR_REGISTRY}/employee-backend"
-        FRONTEND_REPO   = "${ECR_REGISTRY}/employee-frontend"
-        TIMESTAMP       = sh(script: "date +'%Y%m%d-%H%M%S'", returnStdout: true).trim()
-        BACKEND_TAG     = "be-dev-${TIMESTAMP}"
-        FRONTEND_TAG    = "fe-dev-${TIMESTAMP}"
+        DOCKERHUB_BACKEND  = 'your-dockerhub-username/employee-backend'
+        DOCKERHUB_FRONTEND = 'your-dockerhub-username/employee-frontend'
+        IMAGE_TAG          = "build-${BUILD_NUMBER}"
     }
 
     stages {
 
-        // ── Stage 1: Test ─────────────────────────────────────────────────
         stage('Test') {
             steps {
-                    sh '''
+                sh '''
                     pip install -r backend/requirements.txt
                     cd backend
-                    DATABASE_URL=sqlite:///test.db \
-                    AWS_REGION=us-east-1 \
-                    pytest -v
+                    DATABASE_URL=sqlite:///test.db pytest -v
                 '''
             }
         }
 
-        // ── Stage 2: Build & Push ─────────────────────────────────────────
         stage('Build & Push') {
             steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-credentials'
-                ]]) {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-credentials',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
                     sh '''
-                        aws ecr get-login-password --region $AWS_REGION | \
-                            docker login --username AWS --password-stdin $ECR_REGISTRY
+                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
 
-                        docker build -t $BACKEND_REPO:$BACKEND_TAG backend/
-                        docker push $BACKEND_REPO:$BACKEND_TAG
+                        docker build -t $DOCKERHUB_BACKEND:$IMAGE_TAG backend/
+                        docker push $DOCKERHUB_BACKEND:$IMAGE_TAG
+                        docker tag $DOCKERHUB_BACKEND:$IMAGE_TAG $DOCKERHUB_BACKEND:latest
+                        docker push $DOCKERHUB_BACKEND:latest
 
-                        docker build -t $FRONTEND_REPO:$FRONTEND_TAG frontend/
-                        docker push $FRONTEND_REPO:$FRONTEND_TAG
+                        docker build -t $DOCKERHUB_FRONTEND:$IMAGE_TAG frontend/
+                        docker push $DOCKERHUB_FRONTEND:$IMAGE_TAG
+                        docker tag $DOCKERHUB_FRONTEND:$IMAGE_TAG $DOCKERHUB_FRONTEND:latest
+                        docker push $DOCKERHUB_FRONTEND:latest
                     '''
                 }
             }
         }
 
-        // ── Stage 3: Update Helm values ───────────────────────────────────
-        stage('Update Image Tags') {
+        stage('Deploy') {
             steps {
-                sh '''
-                    sed -i "0,/tag: .*/s/tag: .*/tag: ${BACKEND_TAG}/" kubernetes/helm/values.yaml
-                    sed -i "0,/tag: ${BACKEND_TAG}/!s/tag: .*/tag: ${FRONTEND_TAG}/" kubernetes/helm/values.yaml
-                '''
-                withCredentials([usernamePassword(
-                    credentialsId: 'github-credentials',
-                    usernameVariable: 'GIT_USER',
-                    passwordVariable: 'GIT_TOKEN'
-                )]) {
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'ec2-ssh-key',
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    ),
+                    string(credentialsId: 'ec2-host', variable: 'EC2_HOST'),
+                    string(credentialsId: 'database-url', variable: 'DATABASE_URL')
+                ]) {
                     sh '''
-                        git config user.name "jenkins"
-                        git config user.email "jenkins@landmark.dev"
-                        git add kubernetes/helm/values.yaml
-                        git commit -m "ci: update tags - backend:${BACKEND_TAG} frontend:${FRONTEND_TAG}" || true
-                        git push https://${GIT_USER}:${GIT_TOKEN}@github.com/LandmakTechnology/employee-app.git HEAD:main
+                        ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$EC2_HOST "
+                            docker pull $DOCKERHUB_BACKEND:$IMAGE_TAG
+                            docker pull $DOCKERHUB_FRONTEND:$IMAGE_TAG
+
+                            docker network create employee-network 2>/dev/null || true
+
+                            docker rm -f backend frontend 2>/dev/null || true
+
+                            docker run -d --name backend --restart unless-stopped \
+                              --network employee-network \
+                              -p 5000:5000 \
+                              -e DATABASE_URL=$DATABASE_URL \
+                              $DOCKERHUB_BACKEND:$IMAGE_TAG
+
+                            docker run -d --name frontend --restart unless-stopped \
+                              --network employee-network \
+                              -p 80:80 \
+                              $DOCKERHUB_FRONTEND:$IMAGE_TAG
+                        "
                     '''
                 }
             }
@@ -72,11 +81,7 @@ pipeline {
     }
 
     post {
-        success {
-            echo "Pipeline succeeded — backend:${BACKEND_TAG} frontend:${FRONTEND_TAG}"
-        }
-        failure {
-            echo "Pipeline failed — check logs above"
-        }
+        success { echo "Deployed build-${BUILD_NUMBER} to EC2 successfully" }
+        failure { echo "Pipeline failed — check logs above" }
     }
 }
