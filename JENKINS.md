@@ -298,11 +298,11 @@ Build steps are the actual commands Jenkins runs. We will add three steps to mir
 
 ```bash
 echo "=== Installing dependencies ==="
-pip install -r backend/requirements.txt
+pip3 install -r backend/requirements.txt
 
 echo "=== Running tests ==="
 cd backend
-DATABASE_URL=sqlite:///test.db pytest -v
+DATABASE_URL=sqlite:///test.db python3 -m pytest -v
 ```
 
 This installs the Python packages from `backend/requirements.txt` and runs pytest using SQLite so no real database is needed.
@@ -575,8 +575,11 @@ sudo systemctl restart jenkins
 ```
 
 **`pip: command not found`**
+
+Amazon Linux 2023 ships `pip3`, not `pip`. Use `pip3` and `python3 -m pytest` in all build steps:
 ```bash
-sudo dnf install -y python3-pip
+pip3 install -r backend/requirements.txt
+python3 -m pytest -v
 ```
 
 **`Host key verification failed`**
