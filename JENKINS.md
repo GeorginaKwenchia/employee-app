@@ -357,6 +357,63 @@ docker logout
 
 > The credentials are injected as environment variables at runtime. They never appear in the console log.
 
+**Step 4d — Deploy to EC2**
+
+This step SSHs into the deploy EC2, pulls the new images from DockerHub, removes the old containers, and starts fresh ones.
+
+First, add two more bindings in **Build Environment → Use secret text(s) or file(s)**:
+
+| Binding type | Variable | Credential ID |
+|---|---|---|
+| Secret text | `EC2_HOST` | `ec2-host` |
+| Secret text | `DATABASE_URL` | `database-url` |
+
+For the SSH key, add one more binding:
+- Click **Add** → **SSH User Private Key**
+
+| Field | Value |
+|-------|-------|
+| Key File Variable | `SSH_KEY` |
+| Username Variable | `SSH_USER` |
+| Credentials | select `ec2-ssh-key` |
+
+Then click **Add build step** → **Execute shell**:
+
+```bash
+echo "=== Deploying to EC2 ==="
+
+ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$EC2_HOST "
+    docker pull chafah/employee-backend:freestyle-${BUILD_NUMBER}
+    docker pull chafah/employee-frontend:freestyle-${BUILD_NUMBER}
+
+    docker network create employee-network 2>/dev/null || true
+
+    docker rm -f backend frontend 2>/dev/null || true
+
+    docker run -d --name backend --restart unless-stopped \
+      --network employee-network \
+      -p 5000:5000 \
+      -e DATABASE_URL=$DATABASE_URL \
+      chafah/employee-backend:freestyle-${BUILD_NUMBER}
+
+    docker run -d --name frontend --restart unless-stopped \
+      --network employee-network \
+      -p 80:80 \
+      chafah/employee-frontend:freestyle-${BUILD_NUMBER}
+
+    echo 'Deploy complete'
+"
+```
+
+What each line does:
+- `docker pull` — fetches the exact build image from DockerHub onto the deploy EC2
+- `docker network create ... || true` — creates the network if it does not exist, ignores error if it does
+- `docker rm -f` — stops and removes the old running containers
+- `docker run` — starts the new containers on the same network with the same ports
+- `DATABASE_URL` is passed in as an environment variable so the backend knows how to reach Postgres
+
+> **Prerequisite:** The deploy EC2 must have Docker installed and the Jenkins EC2's SSH public key must be in `~/.ssh/authorized_keys` on the deploy EC2. See Part 7.
+
 ---
 
 #### Step 5 — Add Post-build Actions
@@ -384,6 +441,9 @@ You will see Jenkins:
 - Run pip install and pytest
 - Build the Docker images
 - Push to DockerHub
+- SSH into the deploy EC2, pull the images, replace the containers
+
+Access the app at `http://<DEPLOY_EC2_PUBLIC_IP>`
 
 ---
 
@@ -392,8 +452,8 @@ You will see Jenkins:
 | Concept | Where you see it |
 |---------|------------------|
 | Workspace | Jenkins clones the repo to `/var/lib/jenkins/workspace/employee-app-freestyle` |
-| Build number | `${BUILD_NUMBER}` increments each run — visible in image tags |
-| Environment variables | `DOCKER_USER`, `DOCKER_PASS` injected via Credentials Binding |
+| Build number | `${BUILD_NUMBER}` increments each run — visible in image tags and on the deploy EC2 |
+| Environment variables | `DOCKER_USER`, `DOCKER_PASS`, `EC2_HOST`, `DATABASE_URL`, `SSH_KEY` injected via Credentials Binding |
 | Build triggers | Poll SCM checks GitHub every 5 minutes |
 | Post-build actions | Test results archived and graphed per build |
 | Console output | Every shell command and its stdout/stderr printed live |
