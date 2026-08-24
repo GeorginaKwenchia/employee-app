@@ -309,6 +309,12 @@ This installs the Python packages from `backend/requirements.txt` and runs pytes
 
 **Step 4b — Build the Docker image**
 
+> **Prerequisite:** The Jenkins user must be in the `docker` group. If you have not done this yet, run on the Jenkins EC2:
+> ```bash
+> sudo usermod -aG docker jenkins
+> sudo systemctl restart jenkins
+> ```
+
 1. Click **Add build step** → **Execute shell** again
 2. Paste:
 
