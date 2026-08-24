@@ -388,6 +388,22 @@ ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$EC2_HOST "
 
     docker network create employee-network 2>/dev/null || true
 
+    # Start Postgres if not already running
+    if ! docker ps --format '{{.Names}}' | grep -q '^db$'; then
+        docker run -d --name db --restart unless-stopped \
+          --network employee-network \
+          -e POSTGRES_USER=postgres \
+          -e POSTGRES_PASSWORD=postgres \
+          -e POSTGRES_DB=employees \
+          -p 5432:5432 \
+          postgres:15
+
+        echo 'Waiting for Postgres to be ready...'
+        until docker exec db pg_isready -U postgres; do sleep 2; done
+    else
+        echo 'Postgres already running, skipping'
+    fi
+
     docker rm -f backend frontend 2>/dev/null || true
 
     docker run -d --name backend --restart unless-stopped \
@@ -408,7 +424,8 @@ ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$EC2_HOST "
 What each line does:
 - `docker pull` — fetches the exact build image from DockerHub onto the deploy EC2
 - `docker network create ... || true` — creates the network if it does not exist, ignores error if it does
-- `docker rm -f` — stops and removes the old running containers
+- Postgres block — only starts the `db` container if it is not already running, then waits until it is ready to accept connections before continuing
+- `docker rm -f` — stops and removes the old backend and frontend containers only (Postgres is left running)
 - `docker run` — starts the new containers on the same network with the same ports
 - `DATABASE_URL` is passed in as an environment variable so the backend knows how to reach Postgres
 
