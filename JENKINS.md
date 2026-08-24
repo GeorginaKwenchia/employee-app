@@ -183,10 +183,10 @@ Go to **Manage Jenkins → Credentials → System → Global credentials → Add
 
 | Field | Value |
 |-------|-------|
-| Kind | SSH Username with private key |
+| Kind | Secret file |
+| File | upload your `.pem` file |
 | ID | `ec2-ssh-key` |
-| Username | `ec2-user` |
-| Private Key | paste the full contents of your `.pem` file |
+| Description | EC2 deploy server SSH key |
 
 ### 3. EC2 Host (deploy server IP)
 
@@ -369,12 +369,11 @@ First, add two more bindings in **Build Environment → Use secret text(s) or fi
 | Secret text | `DATABASE_URL` | `database-url` |
 
 For the SSH key, add one more binding:
-- Click **Add** → **SSH User Private Key**
+- Click **Add** → **Secret file**
 
 | Field | Value |
 |-------|-------|
-| Key File Variable | `SSH_KEY` |
-| Username Variable | `SSH_USER` |
+| Variable | `SSH_KEY` |
 | Credentials | select `ec2-ssh-key` |
 
 Then click **Add build step** → **Execute shell**:
@@ -382,13 +381,14 @@ Then click **Add build step** → **Execute shell**:
 ```bash
 echo "=== Deploying to EC2 ==="
 
-ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$EC2_HOST "
+chmod 400 $SSH_KEY
+
+ssh -o StrictHostKeyChecking=no -i $SSH_KEY ec2-user@$EC2_HOST "
     docker pull chafah/employee-backend:freestyle-${BUILD_NUMBER}
     docker pull chafah/employee-frontend:freestyle-${BUILD_NUMBER}
 
     docker network create employee-network 2>/dev/null || true
 
-    # Start Postgres if not already running
     if ! docker ps --format '{{.Names}}' | grep -q '^db$'; then
         docker run -d --name db --restart unless-stopped \
           --network employee-network \
@@ -397,8 +397,6 @@ ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$EC2_HOST "
           -e POSTGRES_DB=employees \
           -p 5432:5432 \
           postgres:15
-
-        echo 'Waiting for Postgres to be ready...'
         until docker exec db pg_isready -U postgres; do sleep 2; done
     else
         echo 'Postgres already running, skipping'
@@ -677,3 +675,12 @@ sudo systemctl restart jenkins
 
 **`invalid reference format`** (DockerHub push fails)
 Make sure `DOCKERHUB_BACKEND` and `DOCKERHUB_FRONTEND` use lowercase only — DockerHub repo names must be lowercase.
+
+**`Warning: Identity file not accessible`** (SSH key error)
+Use **Secret file** kind for the EC2 SSH key credential, not SSH Username with private key. Add `chmod 400 $SSH_KEY` as the first line of the deploy shell step.
+
+**`ERR_SSL_PROTOCOL_ERROR` in browser**
+The app does not have SSL. Use `http://` not `https://`:
+```
+http://<DEPLOY_EC2_PUBLIC_IP>
+```
