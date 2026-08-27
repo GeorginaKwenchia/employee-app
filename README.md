@@ -2,6 +2,8 @@
 
 A web application to manage employees — built on AWS EKS with full observability, automated CI/CD, and security at every layer.
 
+Pipeline trigger: 2026-08-27.
+
 ## Repo Structure
 
 ```
