@@ -57,7 +57,7 @@ jobs:
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
+          key: ${{ secrets.EC_SSH_KEY }}
           script: |
             # Authenticate with ECR
             aws ecr get-login-password --region ${{ vars.AWS_REGION }} | \
