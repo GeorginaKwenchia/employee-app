@@ -16,3 +16,10 @@ jobs:
 
       - name: Say hello
         run: echo "Hello from GitHub Actions!"
+
+  show-environment:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Show runner environment variables
+        run: env
