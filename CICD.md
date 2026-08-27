@@ -493,24 +493,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Create ECR repositories if they do not exist
-        run: |
-          aws ecr describe-repositories --repository-names employee-backend \
-            --region ${{ vars.AWS_REGION }} 2>/dev/null || \
-          aws ecr create-repository \
-            --repository-name employee-backend \
-            --region ${{ vars.AWS_REGION }} \
-            --image-scanning-configuration scanOnPush=true \
-            --encryption-configuration encryptionType=AES256
-
-          aws ecr describe-repositories --repository-names employee-frontend \
-            --region ${{ vars.AWS_REGION }} 2>/dev/null || \
-          aws ecr create-repository \
-            --repository-name employee-frontend \
-            --region ${{ vars.AWS_REGION }} \
-            --image-scanning-configuration scanOnPush=true \
-            --encryption-configuration encryptionType=AES256
-
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
@@ -652,24 +634,6 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
-
-      - name: Create ECR repositories if they do not exist
-        run: |
-          aws ecr describe-repositories --repository-names employee-backend \
-            --region ${{ vars.AWS_REGION }} 2>/dev/null || \
-          aws ecr create-repository \
-            --repository-name employee-backend \
-            --region ${{ vars.AWS_REGION }} \
-            --image-scanning-configuration scanOnPush=true \
-            --encryption-configuration encryptionType=AES256
-
-          aws ecr describe-repositories --repository-names employee-frontend \
-            --region ${{ vars.AWS_REGION }} 2>/dev/null || \
-          aws ecr create-repository \
-            --repository-name employee-frontend \
-            --region ${{ vars.AWS_REGION }} \
-            --image-scanning-configuration scanOnPush=true \
-            --encryption-configuration encryptionType=AES256
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
