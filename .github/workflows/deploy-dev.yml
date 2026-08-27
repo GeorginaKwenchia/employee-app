@@ -14,6 +14,7 @@ jobs:
     outputs:
       backend_tag: ${{ steps.tag.outputs.backend_tag }}
       frontend_tag: ${{ steps.tag.outputs.frontend_tag }}
+      ecr_registry: ${{ steps.login-ecr.outputs.registry }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -33,17 +34,18 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Login to ECR
+        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and push backend
         run: |
-          docker build -t ${{ vars.ECR_REGISTRY }}/employee-backend:${{ steps.tag.outputs.backend_tag }} backend/
-          docker push ${{ vars.ECR_REGISTRY }}/employee-backend:${{ steps.tag.outputs.backend_tag }}
+          docker build -t ${{ steps.login-ecr.outputs.registry }}/employee-backend:${{ steps.tag.outputs.backend_tag }} backend/
+          docker push ${{ steps.login-ecr.outputs.registry }}/employee-backend:${{ steps.tag.outputs.backend_tag }}
 
       - name: Build and push frontend
         run: |
-          docker build -t ${{ vars.ECR_REGISTRY }}/employee-frontend:${{ steps.tag.outputs.frontend_tag }} frontend/
-          docker push ${{ vars.ECR_REGISTRY }}/employee-frontend:${{ steps.tag.outputs.frontend_tag }}
+          docker build -t ${{ steps.login-ecr.outputs.registry }}/employee-frontend:${{ steps.tag.outputs.frontend_tag }} frontend/
+          docker push ${{ steps.login-ecr.outputs.registry }}/employee-frontend:${{ steps.tag.outputs.frontend_tag }}
 
   deploy:
     runs-on: ubuntu-latest
@@ -59,7 +61,7 @@ jobs:
           script: |
             # Authenticate with ECR
             aws ecr get-login-password --region ${{ vars.AWS_REGION }} | \
-              docker login --username AWS --password-stdin ${{ vars.ECR_REGISTRY }}
+              docker login --username AWS --password-stdin ${{ needs.build-and-push.outputs.ecr_registry }}
 
             # Create network if it does not exist
             docker network inspect employee-network >/dev/null 2>&1 || \
@@ -79,8 +81,8 @@ jobs:
             fi
 
             # Pull latest images
-            docker pull ${{ vars.ECR_REGISTRY }}/employee-backend:${{ needs.build-and-push.outputs.backend_tag }}
-            docker pull ${{ vars.ECR_REGISTRY }}/employee-frontend:${{ needs.build-and-push.outputs.frontend_tag }}
+            docker pull ${{ needs.build-and-push.outputs.ecr_registry }}/employee-backend:${{ needs.build-and-push.outputs.backend_tag }}
+            docker pull ${{ needs.build-and-push.outputs.ecr_registry }}/employee-frontend:${{ needs.build-and-push.outputs.frontend_tag }}
 
             # Replace old containers
             docker rm -f backend frontend || true
@@ -89,16 +91,16 @@ jobs:
               --network employee-network \
               -p 5000:5000 \
               -e DATABASE_URL=postgresql://postgres:postgres@db:5432/employees \
-              ${{ vars.ECR_REGISTRY }}/employee-backend:${{ needs.build-and-push.outputs.backend_tag }}
+              ${{ needs.build-and-push.outputs.ecr_registry }}/employee-backend:${{ needs.build-and-push.outputs.backend_tag }}
 
             docker run -d --name frontend --restart unless-stopped \
               --network employee-network \
               -p 8080:80 \
-              ${{ vars.ECR_REGISTRY }}/employee-frontend:${{ needs.build-and-push.outputs.frontend_tag }}
+              ${{ needs.build-and-push.outputs.ecr_registry }}/employee-frontend:${{ needs.build-and-push.outputs.frontend_tag }}
 
             # Remove dangling and old images to free disk space
             docker image prune -f
-            docker images ${{ vars.ECR_REGISTRY }}/employee-backend --format '{{.ID}} {{.Tag}}' | \
+            docker images ${{ needs.build-and-push.outputs.ecr_registry }}/employee-backend --format '{{.ID}} {{.Tag}}' | \
               grep -v '${{ needs.build-and-push.outputs.backend_tag }}' | awk '{print $1}' | xargs -r docker rmi -f || true
-            docker images ${{ vars.ECR_REGISTRY }}/employee-frontend --format '{{.ID}} {{.Tag}}' | \
+            docker images ${{ needs.build-and-push.outputs.ecr_registry }}/employee-frontend --format '{{.ID}} {{.Tag}}' | \
               grep -v '${{ needs.build-and-push.outputs.frontend_tag }}' | awk '{print $1}' | xargs -r docker rmi -f || true
