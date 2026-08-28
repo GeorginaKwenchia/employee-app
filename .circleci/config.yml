@@ -95,11 +95,6 @@ jobs:
           fingerprints:
             - "SHA256:8oILyyJmZooPgj/hfKntjmBaP6SqUrtxtWYu9kjI+qM"
       - run:
-          name: Debug SSH agent
-          command: |
-            ssh-add -l -E sha256 || true
-            cat ~/.ssh/config || true
-      - run:
           name: Deploy to EC2
           command: |
             cat > /tmp/deploy.sh \<<SCRIPT
@@ -117,8 +112,8 @@ jobs:
             docker run -d --name frontend --restart unless-stopped --network employee-network -p 8080:80 ${ECR_REGISTRY}/employee-frontend:${FRONTEND_TAG}
             docker image prune -f
             SCRIPT
-            scp -o StrictHostKeyChecking=no -o ConnectTimeout=15 /tmp/deploy.sh $EC2_USER@$EC2_HOST:/tmp/deploy.sh
-            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 $EC2_USER@$EC2_HOST "bash /tmp/deploy.sh"
+            scp -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o IdentitiesOnly=no /tmp/deploy.sh $EC2_USER@$EC2_HOST:/tmp/deploy.sh
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o IdentitiesOnly=no $EC2_USER@$EC2_HOST "bash /tmp/deploy.sh"
 
 # ── Workflows ──────────────────────────────────────────────────────────────────
 workflows:
