@@ -95,17 +95,6 @@ jobs:
           fingerprints:
             - "SHA256:8oILyyJmZooPgj/hfKntjmBaP6SqUrtxtWYu9kjI+qM"
       - run:
-          name: Debug SSH agent public keys
-          command: |
-            echo "--- EC2_USER value (length + hex) ---"
-            printf '%s' "$EC2_USER" | wc -c
-            printf '%s' "$EC2_USER" | od -c | head -5
-            echo "--- ssh-add -L (public keys in agent) ---"
-            ssh-add -L || true
-            echo "--- verbose ssh attempt with literal ec2-user + legacy rsa-sha1 allowed ---"
-            ssh -F /dev/null -vvv -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o BatchMode=yes -o PubkeyAcceptedAlgorithms=+ssh-rsa -o HostKeyAlgorithms=+ssh-rsa ec2-user@$EC2_HOST "echo OK" 2>&1 | grep -Ei "identity file|offering|debug1: Authentications|Permission denied|Server accepts key|Trying private key|debug1: Next authentication|OK" || true
-            ssh -F /dev/null -vvv -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o BatchMode=yes $EC2_USER@$EC2_HOST "echo OK" 2>&1 | grep -Ei "identity file|offering|debug1: Authentications|Permission denied|Server accepts key|Trying private key" || true
-      - run:
           name: Deploy to EC2
           command: |
             cat > /tmp/deploy.sh \<<SCRIPT
