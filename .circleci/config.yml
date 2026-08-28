@@ -95,6 +95,11 @@ jobs:
           fingerprints:
             - "SHA256:8oILyyJmZooPgj/hfKntjmBaP6SqUrtxtWYu9kjI+qM"
       - run:
+          name: Debug SSH agent
+          command: |
+            ssh-add -l -E sha256 || true
+            cat ~/.ssh/config || true
+      - run:
           name: Deploy to EC2
           command: |
             cat > /tmp/deploy.sh \<<SCRIPT
