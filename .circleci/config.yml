@@ -102,8 +102,8 @@ jobs:
             printf '%s' "$EC2_USER" | od -c | head -5
             echo "--- ssh-add -L (public keys in agent) ---"
             ssh-add -L || true
-            echo "--- verbose ssh attempt with literal ec2-user ---"
-            ssh -F /dev/null -vvv -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o BatchMode=yes ec2-user@$EC2_HOST "echo OK" 2>&1 | grep -Ei "identity file|offering|debug1: Authentications|Permission denied|Server accepts key|Trying private key|debug1: Next authentication|OK" || true
+            echo "--- verbose ssh attempt with literal ec2-user + legacy rsa-sha1 allowed ---"
+            ssh -F /dev/null -vvv -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o BatchMode=yes -o PubkeyAcceptedAlgorithms=+ssh-rsa -o HostKeyAlgorithms=+ssh-rsa ec2-user@$EC2_HOST "echo OK" 2>&1 | grep -Ei "identity file|offering|debug1: Authentications|Permission denied|Server accepts key|Trying private key|debug1: Next authentication|OK" || true
             ssh -F /dev/null -vvv -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o BatchMode=yes $EC2_USER@$EC2_HOST "echo OK" 2>&1 | grep -Ei "identity file|offering|debug1: Authentications|Permission denied|Server accepts key|Trying private key" || true
       - run:
           name: Deploy to EC2
@@ -123,8 +123,8 @@ jobs:
             docker run -d --name frontend --restart unless-stopped --network employee-network -p 8080:80 ${ECR_REGISTRY}/employee-frontend:${FRONTEND_TAG}
             docker image prune -f
             SCRIPT
-            scp -F /dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=15 /tmp/deploy.sh $EC2_USER@$EC2_HOST:/tmp/deploy.sh
-            ssh -F /dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=15 $EC2_USER@$EC2_HOST "bash /tmp/deploy.sh"
+            scp -F /dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o PubkeyAcceptedAlgorithms=+ssh-rsa /tmp/deploy.sh $EC2_USER@$EC2_HOST:/tmp/deploy.sh
+            ssh -F /dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o PubkeyAcceptedAlgorithms=+ssh-rsa $EC2_USER@$EC2_HOST "bash /tmp/deploy.sh"
 
 # ── Workflows ──────────────────────────────────────────────────────────────────
 workflows:
