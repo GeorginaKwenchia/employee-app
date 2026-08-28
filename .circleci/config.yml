@@ -99,7 +99,7 @@ jobs:
           command: |
             echo "--- EC2_USER value (length + hex) ---"
             printf '%s' "$EC2_USER" | wc -c
-            printf '%s' "$EC2_USER" | xxd | head -5
+            printf '%s' "$EC2_USER" | od -c | head -5
             echo "--- ssh-add -L (public keys in agent) ---"
             ssh-add -L || true
             echo "--- verbose ssh attempt with literal ec2-user ---"
